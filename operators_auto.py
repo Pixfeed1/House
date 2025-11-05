@@ -83,6 +83,7 @@ class HOUSE_OT_generate_auto(Operator):
         self.real_wall_height = None
 
         print("[House] Début de la génération...")
+        self.report({'INFO'}, "Génération de la maison en cours...")
 
         if props.random_seed > 0:
             random.seed(props.random_seed)
@@ -147,7 +148,8 @@ class HOUSE_OT_generate_auto(Operator):
             traceback.print_exc()
             self.report({'ERROR'}, f"Erreur: {str(e)}")
             return {'CANCELLED'}
-        
+
+        self.report({'INFO'}, "Maison générée avec succès!")
         return {'FINISHED'}
     
     def _apply_architectural_style(self, props):
@@ -341,6 +343,7 @@ class HOUSE_OT_generate_auto(Operator):
                     print(f"[House] Matériau custom: {custom_material.name}")
                 else:
                     print(f"[House] ATTENTION : Pas de matériau custom défini, utilisation preset par défaut")
+                    self.report({'WARNING'}, "Pas de matériau custom défini, utilisation du preset par défaut")
                     brick_material_mode = 'PRESET'
             
             # Générer les murs avec le nouveau système

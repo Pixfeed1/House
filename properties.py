@@ -291,20 +291,9 @@ class HouseGeneratorProperties(PropertyGroup):
     # PORTES
     # ============================================================
     
-    door_width: FloatProperty(
-        name="Largeur porte",
-        description="Largeur de la porte d'entrée",
-        default=1.0,
-        min=0.8,
-        max=2.0,
-        unit='LENGTH',
-        update=regenerate_house
-    )
-    
-    # Alias pour compatibilité
     front_door_width: FloatProperty(
         name="Largeur porte entrée",
-        description="Alias pour door_width",
+        description="Largeur de la porte d'entrée principale",
         default=1.0,
         min=0.8,
         max=2.0,
@@ -358,17 +347,9 @@ class HouseGeneratorProperties(PropertyGroup):
     # GARAGE
     # ============================================================
     
-    add_garage: BoolProperty(
-        name="Ajouter garage",
-        description="Ajouter un garage à la maison",
-        default=False,
-        update=regenerate_house
-    )
-    
-    # Alias pour compatibilité avec l'ancien code
     include_garage: BoolProperty(
         name="Inclure garage",
-        description="Inclure un garage (alias pour add_garage)",
+        description="Ajouter un garage à la maison",
         default=False,
         update=regenerate_house
     )
@@ -421,32 +402,16 @@ class HouseGeneratorProperties(PropertyGroup):
     # BALCONS / TERRASSES
     # ============================================================
     
-    add_balcony: BoolProperty(
+    include_balcony: BoolProperty(
         name="Ajouter balcon",
         description="Ajouter un balcon aux étages supérieurs",
         default=False,
         update=regenerate_house
     )
     
-    # Alias pour compatibilité
-    include_balcony: BoolProperty(
-        name="Inclure balcon",
-        description="Alias pour add_balcony (compatibilité)",
-        default=False,
-        update=regenerate_house
-    )
-    
-    # Propriétés terrasse (manquantes)
-    add_terrace: BoolProperty(
+    include_terrace: BoolProperty(
         name="Ajouter terrasse",
         description="Ajouter une terrasse au rez-de-chaussée",
-        default=False,
-        update=regenerate_house
-    )
-    
-    include_terrace: BoolProperty(
-        name="Inclure terrasse",
-        description="Alias pour add_terrace (compatibilité)",
         default=False,
         update=regenerate_house
     )

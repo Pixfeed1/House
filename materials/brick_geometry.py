@@ -375,14 +375,20 @@ def generate_walls_full_geometry(
     # Calculer statistiques
     total_bricks = calculate_brick_count(house_width, total_height) * 2 + \
                    calculate_brick_count(house_length, total_height) * 2
-    
+
+    # ✅ FIX : Calculer la hauteur RÉELLE des murs (pour positionner le toit correctement)
+    num_rows = int(total_height / (BRICK_HEIGHT + MORTAR_GAP))
+    real_wall_height = num_rows * (BRICK_HEIGHT + MORTAR_GAP)
+
     print(f"[BrickGeometry] ✅ Maison en briques créée!")
     print(f"[BrickGeometry]    Total briques: ~{total_bricks}")
     print(f"[BrickGeometry]    Objets créés: {len(walls)}")
+    print(f"[BrickGeometry]    Hauteur demandée: {total_height:.3f}m")
+    print(f"[BrickGeometry]    Hauteur réelle: {real_wall_height:.3f}m ({num_rows} rangées)")
     print(f"[BrickGeometry]    Ouvertures exclues: {len(openings or [])}")
     print(f"[BrickGeometry]    Matériau: {brick_material_mode}")
-    
-    return walls
+
+    return walls, real_wall_height
 
 
 # ============================================================
