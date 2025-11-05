@@ -679,29 +679,42 @@ class HOUSE_OT_generate_auto(Operator):
         pitch_rad = math.radians(pitch)
         roof_height = width * math.tan(pitch_rad)
         roof_thickness = ROOF_THICKNESS_PITCHED
-        
+
         bm = bmesh.new()
-        
+
         try:
             h = height
             o = overhang
-            
-            v1 = bm.verts.new((-o, -o, h))
-            v2 = bm.verts.new((width + o, -o, h + roof_height))
-            v3 = bm.verts.new((width + o, length + o, h + roof_height))
-            v4 = bm.verts.new((-o, length + o, h))
-            
-            face = bm.faces.new([v1, v2, v3, v4])
-            
-            ret = bmesh.ops.extrude_face_region(bm, geom=[face])
-            extruded_verts = [v for v in ret['geom'] if isinstance(v, bmesh.types.BMVert)]
-            bmesh.ops.translate(bm, verts=extruded_verts, vec=Vector((0, 0, -roof_thickness)))
-            
+
+            # Sommets de la face supérieure (surface du toit inclinée)
+            v1_top = bm.verts.new((-o, -o, h))
+            v2_top = bm.verts.new((width + o, -o, h + roof_height))
+            v3_top = bm.verts.new((width + o, length + o, h + roof_height))
+            v4_top = bm.verts.new((-o, length + o, h))
+
+            # Sommets de la face inférieure (plafond sous le toit)
+            v1_bot = bm.verts.new((-o, -o, h - roof_thickness))
+            v2_bot = bm.verts.new((width + o, -o, h + roof_height - roof_thickness))
+            v3_bot = bm.verts.new((width + o, length + o, h + roof_height - roof_thickness))
+            v4_bot = bm.verts.new((-o, length + o, h - roof_thickness))
+
+            # Face supérieure (pente du toit)
+            bm.faces.new([v1_top, v2_top, v3_top, v4_top])
+
+            # Face inférieure (plafond)
+            bm.faces.new([v4_bot, v3_bot, v2_bot, v1_bot])
+
+            # Faces latérales (fermeture du volume)
+            bm.faces.new([v1_top, v1_bot, v2_bot, v2_top])  # Côté avant (bas)
+            bm.faces.new([v2_top, v2_bot, v3_bot, v3_top])  # Côté droit (haut)
+            bm.faces.new([v3_top, v3_bot, v4_bot, v4_top])  # Côté arrière (bas)
+            bm.faces.new([v4_top, v4_bot, v1_bot, v1_top])  # Côté gauche (haut)
+
             roof, mesh = self._create_mesh_from_bmesh("ShedRoof", bm)
-            
+
         finally:
             bm.free()
-        
+
         return roof
     
     def _generate_wall_openings(self, context, props, collection, walls, style_config):
