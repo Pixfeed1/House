@@ -89,24 +89,41 @@ class HOUSE_OT_generate_auto(Operator):
             random.seed(props.random_seed)
             print(f"[House] Seed: {props.random_seed}")
 
+        # Initialiser la barre de progression
+        wm = context.window_manager
+        wm.progress_begin(0, 100)
+        progress = 0
+
         try:
             # Appliquer le style architectural
             style_config = self._apply_architectural_style(props)
             print(f"[House] Style architectural: {props.architectural_style}")
-            
+            progress += 5
+            wm.progress_update(progress)
+
             house_collection = self._create_house_collection(context)
-            
+            progress += 5
+            wm.progress_update(progress)
+
             print("[House] Fondations...")
             self._generate_foundation(context, props, house_collection)
-            
+            progress += 10
+            wm.progress_update(progress)
+
             print("[House] Murs...")
             walls = self._generate_walls(context, props, house_collection)
-            
+            progress += 20
+            wm.progress_update(progress)
+
             print("[House] Planchers...")
             self._generate_floors(context, props, house_collection)
-            
+            progress += 10
+            wm.progress_update(progress)
+
             print("[House] Toit...")
             self._generate_roof(context, props, house_collection)
+            progress += 15
+            wm.progress_update(progress)
             
             # Perçage des murs SEULEMENT si MUR SIMPLE
             if props.wall_construction_type != 'BRICK_3D':
@@ -114,41 +131,60 @@ class HOUSE_OT_generate_auto(Operator):
                 self._generate_wall_openings(context, props, house_collection, walls, style_config)
             else:
                 print("[House] Murs en briques 3D : ouvertures déjà intégrées")
-            
+            progress += 10
+            wm.progress_update(progress)
+
             print(f"[House] Fenêtres complètes 3D (type: {props.window_type}, qualité: {props.window_quality})...")
             self._generate_windows_complete(context, props, house_collection, style_config)
-            
+            progress += 10
+            wm.progress_update(progress)
+
             if props.include_garage:
                 print("[House] Garage...")
                 self._generate_garage(context, props, house_collection)
-            
+                progress += 5
+                wm.progress_update(progress)
+
             if props.include_terrace or style_config.get('terrace_enabled', False):
                 print("[House] Terrasse...")
                 self._generate_terrace(context, props, house_collection)
-            
+                progress += 3
+                wm.progress_update(progress)
+
             if (props.include_balcony and props.num_floors > 1) or style_config.get('balcony_enabled', False):
                 print("[House] Balcon...")
                 self._generate_balcony(context, props, house_collection)
-            
+                progress += 3
+                wm.progress_update(progress)
+
             if props.use_materials:
                 print("[House] Matériaux...")
                 self._apply_materials(context, props, house_collection, style_config)
-            
+                progress += 10
+                wm.progress_update(progress)
+
             # Éclairage automatique
             if props.auto_lighting:
                 print("[House] Éclairage automatique...")
                 self._add_scene_lighting(context, props)
+                progress += 4
+                wm.progress_update(progress)
             
+            # Finaliser la progression
+            wm.progress_update(100)
+
             print(f"[House] Terminé! Style: {props.architectural_style}, Fenêtres: {props.window_type}")
             self.report({'INFO'}, f"Maison générée! Style: {props.architectural_style}, Fenêtres: {props.window_type}")
-            
+
         except Exception as e:
+            wm.progress_end()
             print(f"[House] ERREUR: {str(e)}")
             import traceback
             traceback.print_exc()
             self.report({'ERROR'}, f"Erreur: {str(e)}")
             return {'CANCELLED'}
 
+        wm.progress_end()
         self.report({'INFO'}, "Maison générée avec succès!")
         return {'FINISHED'}
     
