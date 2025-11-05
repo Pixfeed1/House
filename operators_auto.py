@@ -230,15 +230,19 @@ class HOUSE_OT_generate_auto(Operator):
     def _create_house_collection(self, context):
         """Crée une collection pour la maison"""
         collection_name = "House"
-        
+
         if collection_name in bpy.data.collections:
             collection = bpy.data.collections[collection_name]
             for obj in list(collection.objects):
+                # Unlink from all collections before removing (Blender 4.2 compatibility)
+                for coll in bpy.data.collections:
+                    if obj.name in coll.objects:
+                        coll.objects.unlink(obj)
                 bpy.data.objects.remove(obj, do_unlink=True)
         else:
             collection = bpy.data.collections.new(collection_name)
             context.scene.collection.children.link(collection)
-        
+
         return collection
     
     def _create_box_mesh(self, name, location, dimensions):
@@ -803,7 +807,8 @@ class HOUSE_OT_generate_auto(Operator):
             combined_cutter, combined_mesh = self._create_mesh_from_bmesh("Openings_Cutter", combined_bm)
             collection.objects.link(combined_cutter)
             combined_cutter["house_part"] = "opening"
-            combined_cutter.display_type = 'WIRE'
+            if hasattr(combined_cutter, "display_type"):
+                combined_cutter.display_type = 'WIRE'
             combined_cutter.hide_render = True
             
             for wall in walls:

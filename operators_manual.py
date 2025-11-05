@@ -164,10 +164,11 @@ class HOUSE_OT_add_door(Operator):
         bpy.ops.mesh.primitive_cube_add(size=1, location=location)
         door = context.active_object
         door.name = "Door_Manual"
-        
+
         door.scale = (door_width / 2, door_depth / 2, door_height / 2)
-        door.display_type = 'WIRE'
-        
+        if hasattr(door, "display_type"):
+            door.display_type = 'WIRE'
+
         bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
         
         # Ajouter à la collection House
@@ -218,10 +219,11 @@ class HOUSE_OT_add_window(Operator):
         bpy.ops.mesh.primitive_cube_add(size=1, location=location)
         window = context.active_object
         window.name = "Window_Manual"
-        
+
         window.scale = (window_width / 2, window_depth / 2, window_height / 2)
-        window.display_type = 'WIRE'
-        
+        if hasattr(window, "display_type"):
+            window.display_type = 'WIRE'
+
         bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
         
         # Ajouter à la collection House

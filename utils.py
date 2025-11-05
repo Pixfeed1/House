@@ -322,21 +322,25 @@ def move_object_to_collection(obj, collection):
 def delete_collection(name, delete_objects=True):
     """
     Supprime une collection
-    
+
     Args:
         name (str): Nom de la collection
         delete_objects (bool): Supprimer aussi les objets dedans
     """
     if name not in bpy.data.collections:
         return
-    
+
     collection = bpy.data.collections[name]
-    
+
     if delete_objects:
         # Supprimer tous les objets de la collection
-        for obj in collection.objects:
+        for obj in list(collection.objects):
+            # Unlink from all collections before removing (Blender 4.2 compatibility)
+            for coll in bpy.data.collections:
+                if obj.name in coll.objects:
+                    coll.objects.unlink(obj)
             bpy.data.objects.remove(obj, do_unlink=True)
-    
+
     # Supprimer la collection
     bpy.data.collections.remove(collection)
 
@@ -474,11 +478,15 @@ def select_objects(objects, deselect_others=True):
 def safe_delete_object(obj):
     """
     Supprime un objet en toute sécurité
-    
+
     Args:
         obj (bpy.types.Object): Objet à supprimer
     """
     if obj and obj.name in bpy.data.objects:
+        # Unlink from all collections before removing (Blender 4.2 compatibility)
+        for coll in bpy.data.collections:
+            if obj.name in coll.objects:
+                coll.objects.unlink(obj)
         bpy.data.objects.remove(obj, do_unlink=True)
 
 
