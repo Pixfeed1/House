@@ -122,8 +122,8 @@ def get_brick_preset_items(self, context):
                             ))
                     
                     except Exception as e:
-                        # Ignorer les dossiers problématiques
-                        pass
+                        # Ignorer les dossiers problématiques mais logger l'erreur
+                        print(f"[HousePBR] ⚠️ Erreur scan dossier '{folder_name}': {e}")
     
     except Exception as e:
         # En cas d'erreur, on continue sans les presets PBR

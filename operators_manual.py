@@ -354,8 +354,8 @@ class HOUSE_OT_finalize_manual(Operator):
             for mod in wall.modifiers:
                 try:
                     bpy.ops.object.modifier_apply(modifier=mod.name)
-                except:
-                    pass
+                except Exception as e:
+                    print(f"[House] ⚠️ Impossible d'appliquer le modificateur '{mod.name}' sur {wall.name}: {e}")
         
         # 3. Masquer les ouvertures (elles ont servi pour les booléens)
         for opening in openings:

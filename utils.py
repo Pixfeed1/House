@@ -266,8 +266,8 @@ def create_material_with_texture(name, texture_path, base_color=(1, 1, 1)):
         else:
             img = bpy.data.images.load(texture_path)
         node_tex.image = img
-    except:
-        pass
+    except Exception as e:
+        print(f"[House] ⚠️ Impossible de charger la texture '{texture_path}': {e}")
     
     # Connecter les noeuds
     links.new(node_tex.outputs['Color'], node_bsdf.inputs['Base Color'])
