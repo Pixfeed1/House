@@ -62,7 +62,7 @@ BALCONY_POST_SPACING = 0.5
 
 # Constantes - Matériaux
 MATERIAL_ROUGHNESS = 0.7
-BMESH_MERGE_DISTANCE = 0.0001
+BMESH_MERGE_DISTANCE = 0.001
 
 # Couleurs par défaut
 DEFAULT_WALL_COLOR = (0.9, 0.9, 0.85)
@@ -78,13 +78,16 @@ class HOUSE_OT_generate_auto(Operator):
     
     def execute(self, context):
         props = context.scene.house_generator
-        
+
+        # Initialiser real_wall_height pour éviter AttributeError
+        self.real_wall_height = None
+
         print("[House] Début de la génération...")
-        
+
         if props.random_seed > 0:
             random.seed(props.random_seed)
             print(f"[House] Seed: {props.random_seed}")
-        
+
         try:
             # Appliquer le style architectural
             style_config = self._apply_architectural_style(props)
@@ -245,12 +248,12 @@ class HOUSE_OT_generate_auto(Operator):
         
         try:
             bmesh.ops.create_cube(bm, size=1.0)
-            
+
             scale_matrix = Matrix.Diagonal((*dimensions, 1.0))
             bmesh.ops.transform(bm, matrix=scale_matrix, verts=bm.verts)
-            
-            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-            
+
+            bm.normal_update()
+
             bm.to_mesh(mesh)
             mesh.update()
             
@@ -268,8 +271,8 @@ class HOUSE_OT_generate_auto(Operator):
         
         try:
             bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=BMESH_MERGE_DISTANCE)
-            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-            
+            bm.normal_update()
+
             bm.to_mesh(mesh)
             mesh.update()
             
@@ -362,27 +365,30 @@ class HOUSE_OT_generate_auto(Operator):
         length = props.house_length
         wall_thickness = WALL_THICKNESS
         total_height = props.num_floors * props.floor_height
-        
+
+        # Aligner murs avec le dessus de la fondation
+        base_z = 0
+
         walls = []
         mesh = bpy.data.meshes.new("Walls")
         bm = bmesh.new()
-        
+
         try:
             h = total_height
-            
-            # Vertices du bas
+
+            # Vertices du bas (au niveau des fondations)
             outer = [
-                bm.verts.new((0, 0, 0)),
-                bm.verts.new((width, 0, 0)),
-                bm.verts.new((width, length, 0)),
-                bm.verts.new((0, length, 0))
+                bm.verts.new((0, 0, base_z)),
+                bm.verts.new((width, 0, base_z)),
+                bm.verts.new((width, length, base_z)),
+                bm.verts.new((0, length, base_z))
             ]
-            
+
             inner = [
-                bm.verts.new((wall_thickness, wall_thickness, 0)),
-                bm.verts.new((width - wall_thickness, wall_thickness, 0)),
-                bm.verts.new((width - wall_thickness, length - wall_thickness, 0)),
-                bm.verts.new((wall_thickness, length - wall_thickness, 0))
+                bm.verts.new((wall_thickness, wall_thickness, base_z)),
+                bm.verts.new((width - wall_thickness, wall_thickness, base_z)),
+                bm.verts.new((width - wall_thickness, length - wall_thickness, base_z)),
+                bm.verts.new((wall_thickness, length - wall_thickness, base_z))
             ]
             
             # Vertices du haut
@@ -655,7 +661,6 @@ class HOUSE_OT_generate_auto(Operator):
             bmesh.ops.create_cone(
                 bm,
                 cap_ends=True,
-                cap_tris=False,
                 segments=4,
                 radius1=base_size / 2,
                 radius2=top_size / 2,
@@ -1133,16 +1138,17 @@ class HOUSE_OT_generate_auto(Operator):
         
         if not mat.use_nodes:
             mat.use_nodes = True
-        
+
         nodes = mat.node_tree.nodes
-        principled = nodes.get("Principled BSDF")
-        
+        # Chercher par type au lieu du nom pour compatibilité Blender 4.2
+        principled = next((n for n in nodes if n.type == 'BSDF_PRINCIPLED'), None)
+
         if not principled:
             principled = nodes.new(type='ShaderNodeBsdfPrincipled')
-            output = nodes.get("Material Output")
+            output = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
             if output:
                 mat.node_tree.links.new(principled.outputs["BSDF"], output.inputs["Surface"])
-        
+
         principled.inputs["Base Color"].default_value = (*color, 1.0)
         principled.inputs["Roughness"].default_value = MATERIAL_ROUGHNESS
         
@@ -1169,9 +1175,9 @@ class HOUSE_OT_generate_auto(Operator):
         glass_bsdf.inputs["Color"].default_value = (0.8, 0.9, 1.0, 1.0)
         
         mat.node_tree.links.new(glass_bsdf.outputs["BSDF"], output.inputs["Surface"])
-        
-        mat.blend_method = 'BLEND'
-        mat.shadow_method = 'NONE'
+
+        mat.blend_method = 'HASHED'
+        mat.shadow_method = 'HASHED'
         
         return mat
 

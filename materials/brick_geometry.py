@@ -1004,8 +1004,8 @@ def create_single_brick_mesh(quality='MEDIUM'):
         
         print(f"[BrickGeometry]   ✓ UV mapping créé: {uv_count} loops (box projection)")
 
-        # Recalculer les normales pour un rendu lisse
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        # Recalculer les normales pour un rendu lisse (Blender 4.2 compatible)
+        bm.normal_update()
 
         # ============================================================
         # ÉTAPE 4: ASSIGNER LES MATERIAL SLOTS
@@ -1259,9 +1259,9 @@ def create_mortar_3d_joints(house_width, house_length, total_height, collection,
         
         # Fusionner vertices proches pour optimiser
         bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.001)
-        
-        # Recalculer normales
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+
+        # Recalculer normales (Blender 4.2 compatible)
+        bm.normal_update()
         
         # Créer objet
         mesh = bpy.data.meshes.new("Mortar_3D_Joints")

@@ -196,10 +196,10 @@ def create_simple_material(name, base_color, roughness=0.7, metallic=0.0):
         mat = bpy.data.materials.new(name=name)
         mat.use_nodes = True
     
-    # Récupérer le noeud Principled BSDF
+    # Récupérer le noeud Principled BSDF (par type pour Blender 4.2)
     nodes = mat.node_tree.nodes
-    principled = nodes.get("Principled BSDF")
-    
+    principled = next((n for n in nodes if n.type == 'BSDF_PRINCIPLED'), None)
+
     if principled:
         principled.inputs["Base Color"].default_value = (*base_color, 1.0)
         principled.inputs["Roughness"].default_value = roughness

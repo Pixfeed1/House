@@ -56,8 +56,9 @@ def create_brick_3d_material(preset_id, custom_color=None):
         mat = bpy.data.materials.new(name=mat_name)
         mat.use_nodes = True
         nodes = mat.node_tree.nodes
-        
-        bsdf = nodes.get("Principled BSDF")
+
+        # Chercher par type pour Blender 4.2
+        bsdf = next((n for n in nodes if n.type == 'BSDF_PRINCIPLED'), None)
         if bsdf:
             bsdf.inputs["Base Color"].default_value = (*custom_color[:3], 1.0)
             bsdf.inputs["Roughness"].default_value = 0.8
@@ -84,8 +85,9 @@ def create_brick_3d_material(preset_id, custom_color=None):
             mat = bpy.data.materials.new(name=mat_name)
             mat.use_nodes = True
             nodes = mat.node_tree.nodes
-            
-            bsdf = nodes.get("Principled BSDF")
+
+            # Chercher par type pour Blender 4.2
+            bsdf = next((n for n in nodes if n.type == 'BSDF_PRINCIPLED'), None)
             if bsdf:
                 bsdf.inputs["Base Color"].default_value = (0.65, 0.25, 0.15, 1.0)
                 bsdf.inputs["Roughness"].default_value = 0.85

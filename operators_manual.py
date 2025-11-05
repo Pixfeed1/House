@@ -466,8 +466,9 @@ class HOUSE_OT_finalize_manual(Operator):
             mat.use_nodes = True
         
         nodes = mat.node_tree.nodes
-        principled = nodes.get("Principled BSDF")
-        
+        # Chercher par type pour compatibilité Blender 4.2
+        principled = next((n for n in nodes if n.type == 'BSDF_PRINCIPLED'), None)
+
         if principled:
             principled.inputs["Base Color"].default_value = (*color, 1.0)
             principled.inputs["Roughness"].default_value = 0.7
