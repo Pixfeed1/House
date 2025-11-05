@@ -41,12 +41,12 @@ def get_brick_presets_safe(self, context):
     
     # Fallback: presets hardcodés si le scanner ne marche pas
     return [
-        ('BRICK_RED', "🧱 Briques rouges", "Briques rouges traditionnelles", 'MATERIAL', 0),
-        ('BRICK_RED_DARK', "🧱 Briques rouges foncées", "Briques rouges sombres", 'MATERIAL', 1),
-        ('BRICK_ORANGE', "🧱 Briques orangées", "Briques orangées/terre cuite", 'MATERIAL', 2),
-        ('BRICK_BROWN', "🧱 Briques brunes", "Briques brunes/chocolat", 'MATERIAL', 3),
-        ('BRICK_YELLOW', "🧱 Briques jaunes (London)", "Briques jaunes type London", 'MATERIAL', 4),
-        ('BRICK_GREY', "🧱 Briques grises modernes", "Briques grises contemporaines", 'MATERIAL', 5),
+        ('BRICK_RED', "Briques rouges", "Briques rouges traditionnelles", 'MATERIAL', 0),
+        ('BRICK_RED_DARK', "Briques rouges foncées", "Briques rouges sombres", 'MATERIAL', 1),
+        ('BRICK_ORANGE', "Briques orangées", "Briques orangées/terre cuite", 'MATERIAL', 2),
+        ('BRICK_BROWN', "Briques brunes", "Briques brunes/chocolat", 'MATERIAL', 3),
+        ('BRICK_YELLOW', "Briques jaunes (London)", "Briques jaunes type London", 'MATERIAL', 4),
+        ('BRICK_GREY', "Briques grises modernes", "Briques grises contemporaines", 'MATERIAL', 5),
     ]
 
 
@@ -334,7 +334,7 @@ class HouseGeneratorProperties(PropertyGroup):
         default='SINGLE',
         update=regenerate_house
     )
-    
+
     door_quality: EnumProperty(
         name="Qualité portes",
         description="Niveau de détail des portes",
@@ -344,6 +344,13 @@ class HouseGeneratorProperties(PropertyGroup):
             ('HIGH', "Haute", "Maximum de détails", 2),
         ],
         default='MEDIUM',
+        update=regenerate_house
+    )
+
+    include_back_door: BoolProperty(
+        name="Porte arrière",
+        description="Ajouter une porte à l'arrière de la maison",
+        default=False,
         update=regenerate_house
     )
     
@@ -396,6 +403,17 @@ class HouseGeneratorProperties(PropertyGroup):
             ('ATTACHED', "Attaché", "Garage intégré à la maison"),
         ],
         default='LEFT',
+        update=regenerate_house
+    )
+
+    garage_size: EnumProperty(
+        name="Taille garage",
+        description="Taille du garage",
+        items=[
+            ('SINGLE', "Simple (1 voiture)", "Garage pour 1 voiture"),
+            ('DOUBLE', "Double (2 voitures)", "Garage pour 2 voitures"),
+        ],
+        default='SINGLE',
         update=regenerate_house
     )
     
@@ -452,7 +470,54 @@ class HouseGeneratorProperties(PropertyGroup):
         unit='LENGTH',
         update=regenerate_house
     )
-    
+
+    # ============================================================
+    # CHEMINÉE
+    # ============================================================
+
+    add_chimney: BoolProperty(
+        name="Ajouter cheminée",
+        description="Ajouter une cheminée sur le toit",
+        default=False,
+        update=regenerate_house
+    )
+
+    # ============================================================
+    # DISTRIBUTION DES PIÈCES
+    # ============================================================
+
+    num_rooms: IntProperty(
+        name="Nombre de pièces",
+        description="Nombre de pièces principales",
+        default=3,
+        min=1,
+        max=10,
+        update=regenerate_house
+    )
+
+    include_kitchen: BoolProperty(
+        name="Inclure cuisine",
+        description="Inclure une cuisine dans le plan",
+        default=True,
+        update=regenerate_house
+    )
+
+    include_bathroom: BoolProperty(
+        name="Inclure salle de bain",
+        description="Inclure une ou plusieurs salles de bain",
+        default=True,
+        update=regenerate_house
+    )
+
+    num_bathrooms: IntProperty(
+        name="Nombre de salles de bain",
+        description="Nombre de salles de bain",
+        default=1,
+        min=0,
+        max=5,
+        update=regenerate_house
+    )
+
     # ============================================================
     # QUALITÉ GLOBALE
     # ============================================================

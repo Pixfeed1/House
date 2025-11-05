@@ -907,38 +907,182 @@ class HOUSE_OT_generate_auto(Operator):
     
     def _generate_garage(self, context, props, collection):
         """Génère un garage"""
-        # Code inchangé
-        pass
+        width = props.house_width
+        length = props.house_length
+
+        # Taille du garage selon le type
+        if props.garage_size == 'SINGLE':
+            garage_width = GARAGE_WIDTH_SINGLE
+        else:
+            garage_width = GARAGE_WIDTH_DOUBLE
+
+        garage_length = GARAGE_LENGTH
+        garage_height = GARAGE_HEIGHT
+
+        # Position sur le côté gauche de la maison
+        if props.garage_position == 'LEFT':
+            garage_x = -garage_width / 2 - GARAGE_OFFSET
+            garage_y = length / 2
+        elif props.garage_position == 'RIGHT':
+            garage_x = width + garage_width / 2 + GARAGE_OFFSET
+            garage_y = length / 2
+        else:  # FRONT ou ATTACHED
+            garage_x = width / 2
+            garage_y = -garage_length / 2 - GARAGE_OFFSET
+
+        location = Vector((garage_x, garage_y, garage_height / 2))
+        dimensions = Vector((garage_width, garage_length, garage_height))
+
+        garage, mesh = self._create_box_mesh("Garage", location, dimensions)
+        collection.objects.link(garage)
+        garage["house_part"] = "garage"
+
+        return garage
     
     def _generate_terrace(self, context, props, collection):
         """Génère une terrasse"""
-        # Code inchangé
-        pass
+        width = props.house_width
+        length = props.house_length
+
+        terrace_width = width * TERRACE_WIDTH_RATIO
+        terrace_length = TERRACE_LENGTH
+        terrace_height = TERRACE_HEIGHT
+
+        # Position devant la maison
+        terrace_x = width / 2
+        terrace_y = -terrace_length / 2 - TERRACE_OFFSET
+
+        location = Vector((terrace_x, terrace_y, terrace_height / 2))
+        dimensions = Vector((terrace_width, terrace_length, terrace_height))
+
+        terrace, mesh = self._create_box_mesh("Terrace", location, dimensions)
+        collection.objects.link(terrace)
+        terrace["house_part"] = "terrace"
+
+        return terrace
     
     def _generate_balcony(self, context, props, collection):
         """Génère un balcon"""
-        # Code inchangé
-        pass
-    
+        width = props.house_width
+        length = props.house_length
+
+        balcony_width = width * BALCONY_WIDTH_RATIO
+        balcony_depth = BALCONY_DEPTH
+        balcony_height = BALCONY_HEIGHT
+
+        # Position à l'avant de la maison, au premier étage
+        balcony_x = width / 2
+        balcony_y = -balcony_depth / 2
+        balcony_z = props.floor_height + balcony_height / 2
+
+        location = Vector((balcony_x, balcony_y, balcony_z))
+        dimensions = Vector((balcony_width, balcony_depth, balcony_height))
+
+        balcony, mesh = self._create_box_mesh("Balcony", location, dimensions)
+        collection.objects.link(balcony)
+        balcony["house_part"] = "balcony"
+
+        # Générer la rambarde
+        self._generate_balcony_railing(context, props, collection, balcony_width, balcony_depth, balcony_x, balcony_y, balcony_z + balcony_height / 2)
+
+        return balcony
+
     def _generate_balcony_railing(self, context, props, collection, balcony_width, balcony_depth, x_pos, y_pos, z_pos):
         """Génère la rambarde"""
-        # Code inchangé
-        pass
-    
+        bm = bmesh.new()
+
+        try:
+            railing_height = BALCONY_RAILING_HEIGHT
+            railing_thickness = BALCONY_RAILING_THICKNESS
+
+            # Rail horizontal supérieur (avant)
+            self._add_railing_segment(bm, x_pos, y_pos - balcony_depth / 2, z_pos + railing_height, balcony_width, railing_thickness, railing_thickness)
+
+            # Poteaux
+            num_posts = int(balcony_width / BALCONY_POST_SPACING) + 1
+            for i in range(num_posts):
+                post_x = x_pos - balcony_width / 2 + i * BALCONY_POST_SPACING
+                self._add_railing_post(bm, post_x, y_pos - balcony_depth / 2, z_pos, BALCONY_POST_SIZE, BALCONY_POST_SIZE, railing_height)
+
+            railing, mesh = self._create_mesh_from_bmesh("Balcony_Railing", bm)
+            collection.objects.link(railing)
+            railing["house_part"] = "balcony"
+
+        finally:
+            bm.free()
+
+        return railing
+
     def _add_railing_segment(self, bm, x, y, z, width, depth, height):
         """Ajoute un segment de rambarde"""
-        # Code inchangé
-        pass
-    
+        half_w = width / 2
+        half_d = depth / 2
+        half_h = height / 2
+
+        # Créer les 8 sommets d'un cube
+        v1 = bm.verts.new((x - half_w, y - half_d, z - half_h))
+        v2 = bm.verts.new((x + half_w, y - half_d, z - half_h))
+        v3 = bm.verts.new((x + half_w, y + half_d, z - half_h))
+        v4 = bm.verts.new((x - half_w, y + half_d, z - half_h))
+        v5 = bm.verts.new((x - half_w, y - half_d, z + half_h))
+        v6 = bm.verts.new((x + half_w, y - half_d, z + half_h))
+        v7 = bm.verts.new((x + half_w, y + half_d, z + half_h))
+        v8 = bm.verts.new((x - half_w, y + half_d, z + half_h))
+
+        # Créer les faces
+        bm.faces.new([v1, v2, v3, v4])  # Bas
+        bm.faces.new([v5, v8, v7, v6])  # Haut
+        bm.faces.new([v1, v5, v6, v2])  # Avant
+        bm.faces.new([v2, v6, v7, v3])  # Droite
+        bm.faces.new([v3, v7, v8, v4])  # Arrière
+        bm.faces.new([v4, v8, v5, v1])  # Gauche
+
     def _add_railing_post(self, bm, x, y, z, width, depth, height):
         """Ajoute un poteau"""
-        # Code inchangé
-        pass
+        half_w = width / 2
+        half_d = depth / 2
+
+        # Créer les 8 sommets d'un poteau vertical
+        v1 = bm.verts.new((x - half_w, y - half_d, z))
+        v2 = bm.verts.new((x + half_w, y - half_d, z))
+        v3 = bm.verts.new((x + half_w, y + half_d, z))
+        v4 = bm.verts.new((x - half_w, y + half_d, z))
+        v5 = bm.verts.new((x - half_w, y - half_d, z + height))
+        v6 = bm.verts.new((x + half_w, y - half_d, z + height))
+        v7 = bm.verts.new((x + half_w, y + half_d, z + height))
+        v8 = bm.verts.new((x - half_w, y + half_d, z + height))
+
+        # Créer les faces
+        bm.faces.new([v1, v2, v3, v4])  # Bas
+        bm.faces.new([v5, v8, v7, v6])  # Haut
+        bm.faces.new([v1, v5, v6, v2])  # Avant
+        bm.faces.new([v2, v6, v7, v3])  # Droite
+        bm.faces.new([v3, v7, v8, v4])  # Arrière
+        bm.faces.new([v4, v8, v5, v1])  # Gauche
     
     def _add_scene_lighting(self, context, props):
         """Ajoute l'éclairage"""
-        # Code inchangé
-        pass
+        width = props.house_width
+        length = props.house_length
+        total_height = props.num_floors * props.floor_height
+
+        # Lumière principale (soleil)
+        if "Sun" not in bpy.data.lights:
+            sun_data = bpy.data.lights.new(name="Sun", type='SUN')
+            sun_data.energy = 2.0
+            sun_object = bpy.data.objects.new(name="Sun", object_data=sun_data)
+            context.scene.collection.objects.link(sun_object)
+            sun_object.location = (width / 2, length / 2, total_height + 10)
+            sun_object.rotation_euler = (0.785, 0, 0.785)  # 45 degrés
+
+        # Lumière d'appoint (point light)
+        if "House_Light" not in bpy.data.lights:
+            light_data = bpy.data.lights.new(name="House_Light", type='POINT')
+            light_data.energy = 500.0
+            light_data.shadow_soft_size = 2.0
+            light_object = bpy.data.objects.new(name="House_Light", object_data=light_data)
+            context.scene.collection.objects.link(light_object)
+            light_object.location = (width / 2, length / 2 - 5, total_height + 5)
     
     def _apply_materials(self, context, props, collection, style_config):
         """Applique les matériaux - Les briques 3D sont déjà gérées"""

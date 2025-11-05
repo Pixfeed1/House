@@ -243,15 +243,15 @@ class HOUSE_PT_materials_panel(Panel):
                 
                 # Afficher un aperçu du preset
                 preset_colors = {
-                    'BRICK_RED': "🔴 Rouge traditionnel",
-                    'BRICK_RED_DARK': "🟤 Rouge foncé",
-                    'BRICK_ORANGE': "🟠 Orangé/terre cuite",
-                    'BRICK_BROWN': "🟫 Brun/chocolat",
-                    'BRICK_YELLOW': "🟡 Jaune (London)",
-                    'BRICK_GREY': "⚪ Gris moderne"
+                    'BRICK_RED': "Rouge traditionnel",
+                    'BRICK_RED_DARK': "Rouge foncé",
+                    'BRICK_ORANGE': "Orangé/terre cuite",
+                    'BRICK_BROWN': "Brun/chocolat",
+                    'BRICK_YELLOW': "Jaune (London)",
+                    'BRICK_GREY': "Gris moderne"
                 }
                 if props.brick_preset_type in preset_colors:
-                    subbox.label(text=preset_colors[props.brick_preset_type], icon='INFO')
+                    subbox.label(text=preset_colors[props.brick_preset_type], icon='COLORSET_01_VEC')
             
             # MODE CUSTOM
             elif props.brick_material_mode == 'CUSTOM':
@@ -261,8 +261,8 @@ class HOUSE_PT_materials_panel(Panel):
                 
                 if not props.brick_custom_material:
                     warning = subbox.box()
-                    warning.label(text="⚠ Aucun matériau sélectionné", icon='ERROR')
-                    warning.label(text="Preset utilisé par défaut")
+                    warning.label(text="Aucun matériau sélectionné", icon='ERROR')
+                    warning.label(text="Preset utilisé par défaut", icon='INFO')
         
         # Si murs simples : afficher l'ancien système (inchangé)
         else:
