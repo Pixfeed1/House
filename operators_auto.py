@@ -723,10 +723,21 @@ class HOUSE_OT_generate_auto(Operator):
         return roof
     
     def _create_shed_roof(self, width, length, height, pitch, overhang, collection):
-        """Toit monopente"""
+        """Toit monopente (monte de l'avant vers l'arrière, axe Y)"""
         pitch_rad = math.radians(pitch)
-        roof_height = width * math.tan(pitch_rad)
+
+        # ✅ FIX: Calculer la hauteur basée sur la LONGUEUR (axe Y), pas la largeur
+        roof_height = length * math.tan(pitch_rad)
+
+        # ✅ AMÉLIORATION: Limiter la hauteur à 1.5× la hauteur des murs (réalisme)
+        max_roof_height = height * 1.5
+        if roof_height > max_roof_height:
+            print(f"[House] ⚠️ Toit monopente trop haut ({roof_height:.2f}m), limité à {max_roof_height:.2f}m")
+            roof_height = max_roof_height
+
         roof_thickness = ROOF_THICKNESS_PITCHED
+
+        print(f"[House] Toit monopente: pente {pitch}°, hauteur {roof_height:.2f}m (longueur {length:.1f}m)")
 
         bm = bmesh.new()
 
@@ -734,17 +745,18 @@ class HOUSE_OT_generate_auto(Operator):
             h = height
             o = overhang
 
-            # Sommets de la face supérieure (surface du toit inclinée)
-            v1_top = bm.verts.new((-o, -o, h))
-            v2_top = bm.verts.new((width + o, -o, h + roof_height))
-            v3_top = bm.verts.new((width + o, length + o, h + roof_height))
-            v4_top = bm.verts.new((-o, length + o, h))
+            # ✅ FIX: Sommets corrigés - pente monte sur l'axe Y (avant → arrière)
+            # Face supérieure (surface du toit inclinée)
+            v1_top = bm.verts.new((-o, -o, h))                          # Avant-gauche BAS
+            v2_top = bm.verts.new((width + o, -o, h))                   # Avant-droit BAS
+            v3_top = bm.verts.new((width + o, length + o, h + roof_height))  # Arrière-droit HAUT
+            v4_top = bm.verts.new((-o, length + o, h + roof_height))    # Arrière-gauche HAUT
 
-            # Sommets de la face inférieure (plafond sous le toit)
+            # Face inférieure (plafond sous le toit)
             v1_bot = bm.verts.new((-o, -o, h - roof_thickness))
-            v2_bot = bm.verts.new((width + o, -o, h + roof_height - roof_thickness))
+            v2_bot = bm.verts.new((width + o, -o, h - roof_thickness))
             v3_bot = bm.verts.new((width + o, length + o, h + roof_height - roof_thickness))
-            v4_bot = bm.verts.new((-o, length + o, h - roof_thickness))
+            v4_bot = bm.verts.new((-o, length + o, h + roof_height - roof_thickness))
 
             # Face supérieure (pente du toit)
             bm.faces.new([v1_top, v2_top, v3_top, v4_top])
