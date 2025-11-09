@@ -634,7 +634,13 @@ class HOUSE_OT_generate_auto(Operator):
             roof = self._create_hip_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
         elif roof_type == 'SHED':
             roof = self._create_shed_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
-        
+        elif roof_type == 'GAMBREL':
+            roof = self._create_gambrel_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
+        else:
+            # Fallback au toit plat si type inconnu
+            print(f"[House] ⚠️ Type de toit '{roof_type}' inconnu, utilisation d'un toit plat")
+            roof = self._create_flat_roof(width, length, total_height, roof_overhang, collection)
+
         roof.name = f"Roof_{roof_type}"
         roof["house_part"] = "roof"
         collection.objects.link(roof)
@@ -764,11 +770,11 @@ class HOUSE_OT_generate_auto(Operator):
             # Face inférieure (plafond)
             bm.faces.new([v4_bot, v3_bot, v2_bot, v1_bot])
 
-            # Faces latérales (fermeture du volume)
-            bm.faces.new([v1_top, v1_bot, v2_bot, v2_top])  # Côté avant (bas)
-            bm.faces.new([v2_top, v2_bot, v3_bot, v3_top])  # Côté droit (haut)
-            bm.faces.new([v3_top, v3_bot, v4_bot, v4_top])  # Côté arrière (bas)
-            bm.faces.new([v4_top, v4_bot, v1_bot, v1_top])  # Côté gauche (haut)
+            # ✅ Faces latérales (fermeture du volume - ordre cohérent)
+            bm.faces.new([v1_top, v1_bot, v2_bot, v2_top])  # Avant (bas, Y = -o)
+            bm.faces.new([v3_top, v3_bot, v4_bot, v4_top])  # Arrière (haut, Y = length+o)
+            bm.faces.new([v4_top, v4_bot, v1_bot, v1_top])  # Gauche (trapèze, X = -o)
+            bm.faces.new([v2_top, v2_bot, v3_bot, v3_top])  # Droite (trapèze, X = width+o)
 
             roof, mesh = self._create_mesh_from_bmesh("ShedRoof", bm)
 
@@ -776,7 +782,79 @@ class HOUSE_OT_generate_auto(Operator):
             bm.free()
 
         return roof
-    
+
+    def _create_gambrel_roof(self, width, length, height, pitch, overhang, collection):
+        """Toit mansarde/gambrel (4 pans brisés)"""
+        pitch_rad = math.radians(pitch)
+
+        # Calcul des hauteurs (pente inférieure plus raide)
+        lower_height = (min(width, length) / 4) * math.tan(pitch_rad * 1.5)  # Pente raide
+        upper_height = lower_height * 0.4  # Partie supérieure plus plate
+
+        # Limite réaliste
+        max_total_height = height * 1.5
+        total_roof_height = lower_height + upper_height
+        if total_roof_height > max_total_height:
+            scale_factor = max_total_height / total_roof_height
+            lower_height *= scale_factor
+            upper_height *= scale_factor
+            print(f"[House] ⚠️ Toit mansarde trop haut, limité à {max_total_height:.2f}m")
+
+        print(f"[House] Toit mansarde: pente {pitch}°, hauteur {lower_height + upper_height:.2f}m (pente basse {lower_height:.2f}m + haute {upper_height:.2f}m)")
+
+        bm = bmesh.new()
+
+        try:
+            h = height
+            o = overhang
+            break_point = 0.7  # Point de brisure à 70% de la largeur/longueur
+
+            # ========== Base (niveau des murs) ==========
+            v1 = bm.verts.new((-o, -o, h))
+            v2 = bm.verts.new((width + o, -o, h))
+            v3 = bm.verts.new((width + o, length + o, h))
+            v4 = bm.verts.new((-o, length + o, h))
+
+            # ========== Points de brisure (pente inférieure) ==========
+            bw = width * (1 - break_point) / 2
+            bl = length * (1 - break_point) / 2
+
+            v5 = bm.verts.new((bw, bl, h + lower_height))
+            v6 = bm.verts.new((width - bw, bl, h + lower_height))
+            v7 = bm.verts.new((width - bw, length - bl, h + lower_height))
+            v8 = bm.verts.new((bw, length - bl, h + lower_height))
+
+            # ========== Sommet plat (pente supérieure) ==========
+            tw = width * 0.25  # Toit plat = 25% de la largeur
+            tl = length * 0.25
+
+            v9 = bm.verts.new((width/2 - tw/2, length/2 - tl/2, h + lower_height + upper_height))
+            v10 = bm.verts.new((width/2 + tw/2, length/2 - tl/2, h + lower_height + upper_height))
+            v11 = bm.verts.new((width/2 + tw/2, length/2 + tl/2, h + lower_height + upper_height))
+            v12 = bm.verts.new((width/2 - tw/2, length/2 + tl/2, h + lower_height + upper_height))
+
+            # ========== Faces - Pentes inférieures (raides) ==========
+            bm.faces.new([v1, v2, v6, v5])  # Avant
+            bm.faces.new([v2, v3, v7, v6])  # Droite
+            bm.faces.new([v3, v4, v8, v7])  # Arrière
+            bm.faces.new([v4, v1, v5, v8])  # Gauche
+
+            # ========== Faces - Pentes supérieures (douces) ==========
+            bm.faces.new([v5, v6, v10, v9])  # Avant
+            bm.faces.new([v6, v7, v11, v10])  # Droite
+            bm.faces.new([v7, v8, v12, v11])  # Arrière
+            bm.faces.new([v8, v5, v9, v12])  # Gauche
+
+            # ========== Toit plat supérieur ==========
+            bm.faces.new([v9, v10, v11, v12])
+
+            roof, mesh = self._create_mesh_from_bmesh("GambrelRoof", bm)
+
+        finally:
+            bm.free()
+
+        return roof
+
     def _generate_wall_openings(self, context, props, collection, walls, style_config):
         """Génère les trous dans les murs (Boolean) - pour murs SIMPLES uniquement"""
         width = props.house_width
