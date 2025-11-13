@@ -16,7 +16,14 @@ import random
 # Import du module de fenêtres
 from .windows import WindowGenerator
 
+# ============================================================
+# MODE DEBUG (activer pour logs détaillés)
+# ============================================================
+DEBUG_MODE = False  # Mettre à True pour debug détaillé
+
+# ============================================================
 # Constantes - Dimensions et épaisseurs
+# ============================================================
 WALL_THICKNESS = 0.25
 FLOOR_THICKNESS = 0.2
 FOUNDATION_THICKNESS = 0.3
@@ -79,11 +86,24 @@ class HOUSE_OT_generate_auto(Operator):
     def execute(self, context):
         props = context.scene.house_generator
 
+        # ✅ VALIDATION : Vérifier les paramètres
+        validation_error = self._validate_parameters(props)
+        if validation_error:
+            self.report({'ERROR'}, validation_error)
+            return {'CANCELLED'}
+
         # Initialiser real_wall_height pour éviter AttributeError
         self.real_wall_height = None
 
         print("[House] Début de la génération...")
         self.report({'INFO'}, "Génération de la maison en cours...")
+
+        # Mode debug
+        if DEBUG_MODE:
+            print(f"[DEBUG] Dimensions: {props.house_width}m × {props.house_length}m")
+            print(f"[DEBUG] Étages: {props.num_floors}, Hauteur étage: {props.floor_height}m")
+            print(f"[DEBUG] Toit: {props.roof_type}, Pente: {props.roof_pitch}°")
+            print(f"[DEBUG] Murs: {props.wall_construction_type}, Qualité briques: {props.brick_3d_quality if props.wall_construction_type == 'BRICK_3D' else 'N/A'}")
 
         if props.random_seed > 0:
             random.seed(props.random_seed)
@@ -187,7 +207,52 @@ class HOUSE_OT_generate_auto(Operator):
         wm.progress_end()
         self.report({'INFO'}, "Maison générée avec succès!")
         return {'FINISHED'}
-    
+
+    def _validate_parameters(self, props):
+        """Valide les paramètres de génération
+
+        Returns:
+            str: Message d'erreur si invalide, None si valide
+        """
+        # Dimensions minimales/maximales
+        if props.house_width < 3.0:
+            return "Largeur minimale : 3m"
+        if props.house_width > 50.0:
+            return "Largeur maximale : 50m"
+        if props.house_length < 3.0:
+            return "Longueur minimale : 3m"
+        if props.house_length > 50.0:
+            return "Longueur maximale : 50m"
+
+        # Hauteur d'étage réaliste
+        if props.floor_height < 2.2:
+            return "Hauteur d'étage minimale : 2.2m"
+        if props.floor_height > 5.0:
+            return "Hauteur d'étage maximale : 5m"
+
+        # Pente de toit
+        if props.roof_pitch < 5.0:
+            return "Pente de toit minimale : 5°"
+        if props.roof_pitch > 75.0:
+            return "Pente de toit maximale : 75°"
+
+        # Warning pour GAMBREL avec pente faible
+        if props.roof_type == 'GAMBREL' and props.roof_pitch < 20.0:
+            # Pas d'erreur, juste un warning (sera affiché dans execute)
+            print(f"[House] ⚠️ Toit mansarde : pente faible ({props.roof_pitch}°), résultat peu esthétique (recommandé: 20-45°)")
+
+        # Débord de toit réaliste
+        if props.roof_overhang < 0.0:
+            return "Débord de toit minimal : 0m"
+        if props.roof_overhang > 2.0:
+            return "Débord de toit maximal : 2m"
+
+        # Matériau custom pour briques
+        if props.wall_construction_type == 'BRICK_3D' and props.brick_material_mode == 'CUSTOM' and not props.brick_custom_material:
+            return "Mode matériau custom sélectionné mais aucun matériau défini"
+
+        return None  # Tout est valide
+
     def _apply_architectural_style(self, props):
         """Applique les variations selon le style architectural"""
         style = props.architectural_style
