@@ -62,7 +62,7 @@ BALCONY_POST_SPACING = 0.5
 
 # Constantes - Matériaux
 MATERIAL_ROUGHNESS = 0.7
-BMESH_MERGE_DISTANCE = 0.0001
+BMESH_MERGE_DISTANCE = 0.001
 
 # Couleurs par défaut
 DEFAULT_WALL_COLOR = (0.9, 0.9, 0.85)
@@ -78,31 +78,52 @@ class HOUSE_OT_generate_auto(Operator):
     
     def execute(self, context):
         props = context.scene.house_generator
-        
+
+        # Initialiser real_wall_height pour éviter AttributeError
+        self.real_wall_height = None
+
         print("[House] Début de la génération...")
-        
+        self.report({'INFO'}, "Génération de la maison en cours...")
+
         if props.random_seed > 0:
             random.seed(props.random_seed)
             print(f"[House] Seed: {props.random_seed}")
-        
+
+        # Initialiser la barre de progression
+        wm = context.window_manager
+        wm.progress_begin(0, 100)
+        progress = 0
+
         try:
             # Appliquer le style architectural
             style_config = self._apply_architectural_style(props)
             print(f"[House] Style architectural: {props.architectural_style}")
-            
+            progress += 5
+            wm.progress_update(progress)
+
             house_collection = self._create_house_collection(context)
-            
+            progress += 5
+            wm.progress_update(progress)
+
             print("[House] Fondations...")
             self._generate_foundation(context, props, house_collection)
-            
+            progress += 10
+            wm.progress_update(progress)
+
             print("[House] Murs...")
             walls = self._generate_walls(context, props, house_collection)
-            
+            progress += 20
+            wm.progress_update(progress)
+
             print("[House] Planchers...")
             self._generate_floors(context, props, house_collection)
-            
+            progress += 10
+            wm.progress_update(progress)
+
             print("[House] Toit...")
             self._generate_roof(context, props, house_collection)
+            progress += 15
+            wm.progress_update(progress)
             
             # Perçage des murs SEULEMENT si MUR SIMPLE
             if props.wall_construction_type != 'BRICK_3D':
@@ -110,41 +131,61 @@ class HOUSE_OT_generate_auto(Operator):
                 self._generate_wall_openings(context, props, house_collection, walls, style_config)
             else:
                 print("[House] Murs en briques 3D : ouvertures déjà intégrées")
-            
+            progress += 10
+            wm.progress_update(progress)
+
             print(f"[House] Fenêtres complètes 3D (type: {props.window_type}, qualité: {props.window_quality})...")
             self._generate_windows_complete(context, props, house_collection, style_config)
-            
+            progress += 10
+            wm.progress_update(progress)
+
             if props.include_garage:
                 print("[House] Garage...")
                 self._generate_garage(context, props, house_collection)
-            
+                progress += 5
+                wm.progress_update(progress)
+
             if props.include_terrace or style_config.get('terrace_enabled', False):
                 print("[House] Terrasse...")
                 self._generate_terrace(context, props, house_collection)
-            
+                progress += 3
+                wm.progress_update(progress)
+
             if (props.include_balcony and props.num_floors > 1) or style_config.get('balcony_enabled', False):
                 print("[House] Balcon...")
                 self._generate_balcony(context, props, house_collection)
-            
+                progress += 3
+                wm.progress_update(progress)
+
             if props.use_materials:
                 print("[House] Matériaux...")
                 self._apply_materials(context, props, house_collection, style_config)
-            
+                progress += 10
+                wm.progress_update(progress)
+
             # Éclairage automatique
             if props.auto_lighting:
                 print("[House] Éclairage automatique...")
                 self._add_scene_lighting(context, props)
+                progress += 4
+                wm.progress_update(progress)
             
+            # Finaliser la progression
+            wm.progress_update(100)
+
             print(f"[House] Terminé! Style: {props.architectural_style}, Fenêtres: {props.window_type}")
             self.report({'INFO'}, f"Maison générée! Style: {props.architectural_style}, Fenêtres: {props.window_type}")
-            
+
         except Exception as e:
+            wm.progress_end()
             print(f"[House] ERREUR: {str(e)}")
             import traceback
             traceback.print_exc()
             self.report({'ERROR'}, f"Erreur: {str(e)}")
             return {'CANCELLED'}
-        
+
+        wm.progress_end()
+        self.report({'INFO'}, "Maison générée avec succès!")
         return {'FINISHED'}
     
     def _apply_architectural_style(self, props):
@@ -227,15 +268,19 @@ class HOUSE_OT_generate_auto(Operator):
     def _create_house_collection(self, context):
         """Crée une collection pour la maison"""
         collection_name = "House"
-        
+
         if collection_name in bpy.data.collections:
             collection = bpy.data.collections[collection_name]
             for obj in list(collection.objects):
+                # Unlink from all collections before removing (Blender 4.2 compatibility)
+                for coll in bpy.data.collections:
+                    if obj.name in coll.objects:
+                        coll.objects.unlink(obj)
                 bpy.data.objects.remove(obj, do_unlink=True)
         else:
             collection = bpy.data.collections.new(collection_name)
             context.scene.collection.children.link(collection)
-        
+
         return collection
     
     def _create_box_mesh(self, name, location, dimensions):
@@ -245,12 +290,12 @@ class HOUSE_OT_generate_auto(Operator):
         
         try:
             bmesh.ops.create_cube(bm, size=1.0)
-            
+
             scale_matrix = Matrix.Diagonal((*dimensions, 1.0))
             bmesh.ops.transform(bm, matrix=scale_matrix, verts=bm.verts)
-            
-            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-            
+
+            bm.normal_update()
+
             bm.to_mesh(mesh)
             mesh.update()
             
@@ -268,8 +313,8 @@ class HOUSE_OT_generate_auto(Operator):
         
         try:
             bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=BMESH_MERGE_DISTANCE)
-            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-            
+            bm.normal_update()
+
             bm.to_mesh(mesh)
             mesh.update()
             
@@ -334,6 +379,7 @@ class HOUSE_OT_generate_auto(Operator):
                     print(f"[House] Matériau custom: {custom_material.name}")
                 else:
                     print(f"[House] ATTENTION : Pas de matériau custom défini, utilisation preset par défaut")
+                    self.report({'WARNING'}, "Pas de matériau custom défini, utilisation du preset par défaut")
                     brick_material_mode = 'PRESET'
             
             # Générer les murs avec le nouveau système
@@ -362,27 +408,30 @@ class HOUSE_OT_generate_auto(Operator):
         length = props.house_length
         wall_thickness = WALL_THICKNESS
         total_height = props.num_floors * props.floor_height
-        
+
+        # Aligner murs avec le dessus de la fondation
+        base_z = 0
+
         walls = []
         mesh = bpy.data.meshes.new("Walls")
         bm = bmesh.new()
-        
+
         try:
             h = total_height
-            
-            # Vertices du bas
+
+            # Vertices du bas (au niveau des fondations)
             outer = [
-                bm.verts.new((0, 0, 0)),
-                bm.verts.new((width, 0, 0)),
-                bm.verts.new((width, length, 0)),
-                bm.verts.new((0, length, 0))
+                bm.verts.new((0, 0, base_z)),
+                bm.verts.new((width, 0, base_z)),
+                bm.verts.new((width, length, base_z)),
+                bm.verts.new((0, length, base_z))
             ]
-            
+
             inner = [
-                bm.verts.new((wall_thickness, wall_thickness, 0)),
-                bm.verts.new((width - wall_thickness, wall_thickness, 0)),
-                bm.verts.new((width - wall_thickness, length - wall_thickness, 0)),
-                bm.verts.new((wall_thickness, length - wall_thickness, 0))
+                bm.verts.new((wall_thickness, wall_thickness, base_z)),
+                bm.verts.new((width - wall_thickness, wall_thickness, base_z)),
+                bm.verts.new((width - wall_thickness, length - wall_thickness, base_z)),
+                bm.verts.new((wall_thickness, length - wall_thickness, base_z))
             ]
             
             # Vertices du haut
@@ -585,7 +634,13 @@ class HOUSE_OT_generate_auto(Operator):
             roof = self._create_hip_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
         elif roof_type == 'SHED':
             roof = self._create_shed_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
-        
+        elif roof_type == 'GAMBREL':
+            roof = self._create_gambrel_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
+        else:
+            # Fallback au toit plat si type inconnu
+            print(f"[House] ⚠️ Type de toit '{roof_type}' inconnu, utilisation d'un toit plat")
+            roof = self._create_flat_roof(width, length, total_height, roof_overhang, collection)
+
         roof.name = f"Roof_{roof_type}"
         roof["house_part"] = "roof"
         collection.objects.link(roof)
@@ -655,7 +710,6 @@ class HOUSE_OT_generate_auto(Operator):
             bmesh.ops.create_cone(
                 bm,
                 cap_ends=True,
-                cap_tris=False,
                 segments=4,
                 radius1=base_size / 2,
                 radius2=top_size / 2,
@@ -675,35 +729,132 @@ class HOUSE_OT_generate_auto(Operator):
         return roof
     
     def _create_shed_roof(self, width, length, height, pitch, overhang, collection):
-        """Toit monopente"""
+        """Toit monopente (monte de l'avant vers l'arrière, axe Y)"""
         pitch_rad = math.radians(pitch)
-        roof_height = width * math.tan(pitch_rad)
+
+        # ✅ FIX: Calculer la hauteur basée sur la LONGUEUR (axe Y), pas la largeur
+        roof_height = length * math.tan(pitch_rad)
+
+        # ✅ AMÉLIORATION: Limiter la hauteur à 1.5× la hauteur des murs (réalisme)
+        max_roof_height = height * 1.5
+        if roof_height > max_roof_height:
+            print(f"[House] ⚠️ Toit monopente trop haut ({roof_height:.2f}m), limité à {max_roof_height:.2f}m")
+            roof_height = max_roof_height
+
         roof_thickness = ROOF_THICKNESS_PITCHED
-        
+
+        print(f"[House] Toit monopente: pente {pitch}°, hauteur {roof_height:.2f}m (longueur {length:.1f}m)")
+
         bm = bmesh.new()
-        
+
         try:
             h = height
             o = overhang
-            
-            v1 = bm.verts.new((-o, -o, h))
-            v2 = bm.verts.new((width + o, -o, h + roof_height))
-            v3 = bm.verts.new((width + o, length + o, h + roof_height))
-            v4 = bm.verts.new((-o, length + o, h))
-            
-            face = bm.faces.new([v1, v2, v3, v4])
-            
-            ret = bmesh.ops.extrude_face_region(bm, geom=[face])
-            extruded_verts = [v for v in ret['geom'] if isinstance(v, bmesh.types.BMVert)]
-            bmesh.ops.translate(bm, verts=extruded_verts, vec=Vector((0, 0, -roof_thickness)))
-            
+
+            # ✅ FIX: Sommets corrigés - pente monte sur l'axe Y (avant → arrière)
+            # Face supérieure (surface du toit inclinée)
+            v1_top = bm.verts.new((-o, -o, h))                          # Avant-gauche BAS
+            v2_top = bm.verts.new((width + o, -o, h))                   # Avant-droit BAS
+            v3_top = bm.verts.new((width + o, length + o, h + roof_height))  # Arrière-droit HAUT
+            v4_top = bm.verts.new((-o, length + o, h + roof_height))    # Arrière-gauche HAUT
+
+            # Face inférieure (plafond sous le toit)
+            v1_bot = bm.verts.new((-o, -o, h - roof_thickness))
+            v2_bot = bm.verts.new((width + o, -o, h - roof_thickness))
+            v3_bot = bm.verts.new((width + o, length + o, h + roof_height - roof_thickness))
+            v4_bot = bm.verts.new((-o, length + o, h + roof_height - roof_thickness))
+
+            # Face supérieure (pente du toit)
+            bm.faces.new([v1_top, v2_top, v3_top, v4_top])
+
+            # Face inférieure (plafond)
+            bm.faces.new([v4_bot, v3_bot, v2_bot, v1_bot])
+
+            # ✅ Faces latérales (fermeture du volume - ordre cohérent)
+            bm.faces.new([v1_top, v1_bot, v2_bot, v2_top])  # Avant (bas, Y = -o)
+            bm.faces.new([v3_top, v3_bot, v4_bot, v4_top])  # Arrière (haut, Y = length+o)
+            bm.faces.new([v4_top, v4_bot, v1_bot, v1_top])  # Gauche (trapèze, X = -o)
+            bm.faces.new([v2_top, v2_bot, v3_bot, v3_top])  # Droite (trapèze, X = width+o)
+
             roof, mesh = self._create_mesh_from_bmesh("ShedRoof", bm)
-            
+
         finally:
             bm.free()
-        
+
         return roof
-    
+
+    def _create_gambrel_roof(self, width, length, height, pitch, overhang, collection):
+        """Toit mansarde/gambrel (4 pans brisés)"""
+        pitch_rad = math.radians(pitch)
+
+        # Calcul des hauteurs (pente inférieure plus raide)
+        lower_height = (min(width, length) / 4) * math.tan(pitch_rad * 1.5)  # Pente raide
+        upper_height = lower_height * 0.4  # Partie supérieure plus plate
+
+        # Limite réaliste
+        max_total_height = height * 1.5
+        total_roof_height = lower_height + upper_height
+        if total_roof_height > max_total_height:
+            scale_factor = max_total_height / total_roof_height
+            lower_height *= scale_factor
+            upper_height *= scale_factor
+            print(f"[House] ⚠️ Toit mansarde trop haut, limité à {max_total_height:.2f}m")
+
+        print(f"[House] Toit mansarde: pente {pitch}°, hauteur {lower_height + upper_height:.2f}m (pente basse {lower_height:.2f}m + haute {upper_height:.2f}m)")
+
+        bm = bmesh.new()
+
+        try:
+            h = height
+            o = overhang
+            break_point = 0.7  # Point de brisure à 70% de la largeur/longueur
+
+            # ========== Base (niveau des murs) ==========
+            v1 = bm.verts.new((-o, -o, h))
+            v2 = bm.verts.new((width + o, -o, h))
+            v3 = bm.verts.new((width + o, length + o, h))
+            v4 = bm.verts.new((-o, length + o, h))
+
+            # ========== Points de brisure (pente inférieure) ==========
+            bw = width * (1 - break_point) / 2
+            bl = length * (1 - break_point) / 2
+
+            v5 = bm.verts.new((bw, bl, h + lower_height))
+            v6 = bm.verts.new((width - bw, bl, h + lower_height))
+            v7 = bm.verts.new((width - bw, length - bl, h + lower_height))
+            v8 = bm.verts.new((bw, length - bl, h + lower_height))
+
+            # ========== Sommet plat (pente supérieure) ==========
+            tw = width * 0.25  # Toit plat = 25% de la largeur
+            tl = length * 0.25
+
+            v9 = bm.verts.new((width/2 - tw/2, length/2 - tl/2, h + lower_height + upper_height))
+            v10 = bm.verts.new((width/2 + tw/2, length/2 - tl/2, h + lower_height + upper_height))
+            v11 = bm.verts.new((width/2 + tw/2, length/2 + tl/2, h + lower_height + upper_height))
+            v12 = bm.verts.new((width/2 - tw/2, length/2 + tl/2, h + lower_height + upper_height))
+
+            # ========== Faces - Pentes inférieures (raides) ==========
+            bm.faces.new([v1, v2, v6, v5])  # Avant
+            bm.faces.new([v2, v3, v7, v6])  # Droite
+            bm.faces.new([v3, v4, v8, v7])  # Arrière
+            bm.faces.new([v4, v1, v5, v8])  # Gauche
+
+            # ========== Faces - Pentes supérieures (douces) ==========
+            bm.faces.new([v5, v6, v10, v9])  # Avant
+            bm.faces.new([v6, v7, v11, v10])  # Droite
+            bm.faces.new([v7, v8, v12, v11])  # Arrière
+            bm.faces.new([v8, v5, v9, v12])  # Gauche
+
+            # ========== Toit plat supérieur ==========
+            bm.faces.new([v9, v10, v11, v12])
+
+            roof, mesh = self._create_mesh_from_bmesh("GambrelRoof", bm)
+
+        finally:
+            bm.free()
+
+        return roof
+
     def _generate_wall_openings(self, context, props, collection, walls, style_config):
         """Génère les trous dans les murs (Boolean) - pour murs SIMPLES uniquement"""
         width = props.house_width
@@ -785,7 +936,8 @@ class HOUSE_OT_generate_auto(Operator):
             combined_cutter, combined_mesh = self._create_mesh_from_bmesh("Openings_Cutter", combined_bm)
             collection.objects.link(combined_cutter)
             combined_cutter["house_part"] = "opening"
-            combined_cutter.display_type = 'WIRE'
+            if hasattr(combined_cutter, "display_type"):
+                combined_cutter.display_type = 'WIRE'
             combined_cutter.hide_render = True
             
             for wall in walls:
@@ -894,38 +1046,182 @@ class HOUSE_OT_generate_auto(Operator):
     
     def _generate_garage(self, context, props, collection):
         """Génère un garage"""
-        # Code inchangé
-        pass
+        width = props.house_width
+        length = props.house_length
+
+        # Taille du garage selon le type
+        if props.garage_size == 'SINGLE':
+            garage_width = GARAGE_WIDTH_SINGLE
+        else:
+            garage_width = GARAGE_WIDTH_DOUBLE
+
+        garage_length = GARAGE_LENGTH
+        garage_height = GARAGE_HEIGHT
+
+        # Position sur le côté gauche de la maison
+        if props.garage_position == 'LEFT':
+            garage_x = -garage_width / 2 - GARAGE_OFFSET
+            garage_y = length / 2
+        elif props.garage_position == 'RIGHT':
+            garage_x = width + garage_width / 2 + GARAGE_OFFSET
+            garage_y = length / 2
+        else:  # FRONT ou ATTACHED
+            garage_x = width / 2
+            garage_y = -garage_length / 2 - GARAGE_OFFSET
+
+        location = Vector((garage_x, garage_y, garage_height / 2))
+        dimensions = Vector((garage_width, garage_length, garage_height))
+
+        garage, mesh = self._create_box_mesh("Garage", location, dimensions)
+        collection.objects.link(garage)
+        garage["house_part"] = "garage"
+
+        return garage
     
     def _generate_terrace(self, context, props, collection):
         """Génère une terrasse"""
-        # Code inchangé
-        pass
+        width = props.house_width
+        length = props.house_length
+
+        terrace_width = width * TERRACE_WIDTH_RATIO
+        terrace_length = TERRACE_LENGTH
+        terrace_height = TERRACE_HEIGHT
+
+        # Position devant la maison
+        terrace_x = width / 2
+        terrace_y = -terrace_length / 2 - TERRACE_OFFSET
+
+        location = Vector((terrace_x, terrace_y, terrace_height / 2))
+        dimensions = Vector((terrace_width, terrace_length, terrace_height))
+
+        terrace, mesh = self._create_box_mesh("Terrace", location, dimensions)
+        collection.objects.link(terrace)
+        terrace["house_part"] = "terrace"
+
+        return terrace
     
     def _generate_balcony(self, context, props, collection):
         """Génère un balcon"""
-        # Code inchangé
-        pass
-    
+        width = props.house_width
+        length = props.house_length
+
+        balcony_width = width * BALCONY_WIDTH_RATIO
+        balcony_depth = BALCONY_DEPTH
+        balcony_height = BALCONY_HEIGHT
+
+        # Position à l'avant de la maison, au premier étage
+        balcony_x = width / 2
+        balcony_y = -balcony_depth / 2
+        balcony_z = props.floor_height + balcony_height / 2
+
+        location = Vector((balcony_x, balcony_y, balcony_z))
+        dimensions = Vector((balcony_width, balcony_depth, balcony_height))
+
+        balcony, mesh = self._create_box_mesh("Balcony", location, dimensions)
+        collection.objects.link(balcony)
+        balcony["house_part"] = "balcony"
+
+        # Générer la rambarde
+        self._generate_balcony_railing(context, props, collection, balcony_width, balcony_depth, balcony_x, balcony_y, balcony_z + balcony_height / 2)
+
+        return balcony
+
     def _generate_balcony_railing(self, context, props, collection, balcony_width, balcony_depth, x_pos, y_pos, z_pos):
         """Génère la rambarde"""
-        # Code inchangé
-        pass
-    
+        bm = bmesh.new()
+
+        try:
+            railing_height = BALCONY_RAILING_HEIGHT
+            railing_thickness = BALCONY_RAILING_THICKNESS
+
+            # Rail horizontal supérieur (avant)
+            self._add_railing_segment(bm, x_pos, y_pos - balcony_depth / 2, z_pos + railing_height, balcony_width, railing_thickness, railing_thickness)
+
+            # Poteaux
+            num_posts = int(balcony_width / BALCONY_POST_SPACING) + 1
+            for i in range(num_posts):
+                post_x = x_pos - balcony_width / 2 + i * BALCONY_POST_SPACING
+                self._add_railing_post(bm, post_x, y_pos - balcony_depth / 2, z_pos, BALCONY_POST_SIZE, BALCONY_POST_SIZE, railing_height)
+
+            railing, mesh = self._create_mesh_from_bmesh("Balcony_Railing", bm)
+            collection.objects.link(railing)
+            railing["house_part"] = "balcony"
+
+        finally:
+            bm.free()
+
+        return railing
+
     def _add_railing_segment(self, bm, x, y, z, width, depth, height):
         """Ajoute un segment de rambarde"""
-        # Code inchangé
-        pass
-    
+        half_w = width / 2
+        half_d = depth / 2
+        half_h = height / 2
+
+        # Créer les 8 sommets d'un cube
+        v1 = bm.verts.new((x - half_w, y - half_d, z - half_h))
+        v2 = bm.verts.new((x + half_w, y - half_d, z - half_h))
+        v3 = bm.verts.new((x + half_w, y + half_d, z - half_h))
+        v4 = bm.verts.new((x - half_w, y + half_d, z - half_h))
+        v5 = bm.verts.new((x - half_w, y - half_d, z + half_h))
+        v6 = bm.verts.new((x + half_w, y - half_d, z + half_h))
+        v7 = bm.verts.new((x + half_w, y + half_d, z + half_h))
+        v8 = bm.verts.new((x - half_w, y + half_d, z + half_h))
+
+        # Créer les faces
+        bm.faces.new([v1, v2, v3, v4])  # Bas
+        bm.faces.new([v5, v8, v7, v6])  # Haut
+        bm.faces.new([v1, v5, v6, v2])  # Avant
+        bm.faces.new([v2, v6, v7, v3])  # Droite
+        bm.faces.new([v3, v7, v8, v4])  # Arrière
+        bm.faces.new([v4, v8, v5, v1])  # Gauche
+
     def _add_railing_post(self, bm, x, y, z, width, depth, height):
         """Ajoute un poteau"""
-        # Code inchangé
-        pass
+        half_w = width / 2
+        half_d = depth / 2
+
+        # Créer les 8 sommets d'un poteau vertical
+        v1 = bm.verts.new((x - half_w, y - half_d, z))
+        v2 = bm.verts.new((x + half_w, y - half_d, z))
+        v3 = bm.verts.new((x + half_w, y + half_d, z))
+        v4 = bm.verts.new((x - half_w, y + half_d, z))
+        v5 = bm.verts.new((x - half_w, y - half_d, z + height))
+        v6 = bm.verts.new((x + half_w, y - half_d, z + height))
+        v7 = bm.verts.new((x + half_w, y + half_d, z + height))
+        v8 = bm.verts.new((x - half_w, y + half_d, z + height))
+
+        # Créer les faces
+        bm.faces.new([v1, v2, v3, v4])  # Bas
+        bm.faces.new([v5, v8, v7, v6])  # Haut
+        bm.faces.new([v1, v5, v6, v2])  # Avant
+        bm.faces.new([v2, v6, v7, v3])  # Droite
+        bm.faces.new([v3, v7, v8, v4])  # Arrière
+        bm.faces.new([v4, v8, v5, v1])  # Gauche
     
     def _add_scene_lighting(self, context, props):
         """Ajoute l'éclairage"""
-        # Code inchangé
-        pass
+        width = props.house_width
+        length = props.house_length
+        total_height = props.num_floors * props.floor_height
+
+        # Lumière principale (soleil)
+        if "Sun" not in bpy.data.lights:
+            sun_data = bpy.data.lights.new(name="Sun", type='SUN')
+            sun_data.energy = 2.0
+            sun_object = bpy.data.objects.new(name="Sun", object_data=sun_data)
+            context.scene.collection.objects.link(sun_object)
+            sun_object.location = (width / 2, length / 2, total_height + 10)
+            sun_object.rotation_euler = (0.785, 0, 0.785)  # 45 degrés
+
+        # Lumière d'appoint (point light)
+        if "House_Light" not in bpy.data.lights:
+            light_data = bpy.data.lights.new(name="House_Light", type='POINT')
+            light_data.energy = 500.0
+            light_data.shadow_soft_size = 2.0
+            light_object = bpy.data.objects.new(name="House_Light", object_data=light_data)
+            context.scene.collection.objects.link(light_object)
+            light_object.location = (width / 2, length / 2 - 5, total_height + 5)
     
     def _apply_materials(self, context, props, collection, style_config):
         """Applique les matériaux - Les briques 3D sont déjà gérées"""
@@ -976,16 +1272,17 @@ class HOUSE_OT_generate_auto(Operator):
         
         if not mat.use_nodes:
             mat.use_nodes = True
-        
+
         nodes = mat.node_tree.nodes
-        principled = nodes.get("Principled BSDF")
-        
+        # Chercher par type au lieu du nom pour compatibilité Blender 4.2
+        principled = next((n for n in nodes if n.type == 'BSDF_PRINCIPLED'), None)
+
         if not principled:
             principled = nodes.new(type='ShaderNodeBsdfPrincipled')
-            output = nodes.get("Material Output")
+            output = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
             if output:
                 mat.node_tree.links.new(principled.outputs["BSDF"], output.inputs["Surface"])
-        
+
         principled.inputs["Base Color"].default_value = (*color, 1.0)
         principled.inputs["Roughness"].default_value = MATERIAL_ROUGHNESS
         
@@ -1012,9 +1309,9 @@ class HOUSE_OT_generate_auto(Operator):
         glass_bsdf.inputs["Color"].default_value = (0.8, 0.9, 1.0, 1.0)
         
         mat.node_tree.links.new(glass_bsdf.outputs["BSDF"], output.inputs["Surface"])
-        
-        mat.blend_method = 'BLEND'
-        mat.shadow_method = 'NONE'
+
+        mat.blend_method = 'HASHED'
+        mat.shadow_method = 'HASHED'
         
         return mat
 
@@ -1033,4 +1330,4 @@ def register():
 def unregister():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
-    print("[House] Module operators_auto déchargé")
+    
