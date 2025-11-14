@@ -19,6 +19,9 @@ from .windows import WindowGenerator
 # ============================================================
 # MODE DEBUG (activer pour logs détaillés)
 # ============================================================
+# NOTE BUG #10: DEBUG_MODE est actuellement hardcodé
+# TODO: Considérer de le déplacer vers les préférences (properties.py) pour permettre
+# un toggle via l'interface Blender sans éditer le code source
 DEBUG_MODE = False  # Mettre à True pour debug détaillé
 
 # ============================================================
@@ -690,21 +693,22 @@ class HOUSE_OT_generate_auto(Operator):
         roof_type = props.roof_type
         roof_pitch = props.roof_pitch
         roof_overhang = props.roof_overhang
-        
+
+        # ✅ FIX BUG #1: Suppression du paramètre collection inutilisé dans les appels
         if roof_type == 'FLAT':
-            roof = self._create_flat_roof(width, length, total_height, roof_overhang, collection)
+            roof = self._create_flat_roof(width, length, total_height, roof_overhang)
         elif roof_type == 'GABLE':
-            roof = self._create_gable_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
+            roof = self._create_gable_roof(width, length, total_height, roof_pitch, roof_overhang)
         elif roof_type == 'HIP':
-            roof = self._create_hip_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
+            roof = self._create_hip_roof(width, length, total_height, roof_pitch, roof_overhang)
         elif roof_type == 'SHED':
-            roof = self._create_shed_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
+            roof = self._create_shed_roof(width, length, total_height, roof_pitch, roof_overhang)
         elif roof_type == 'GAMBREL':
-            roof = self._create_gambrel_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
+            roof = self._create_gambrel_roof(width, length, total_height, roof_pitch, roof_overhang)
         else:
             # Fallback au toit plat si type inconnu
             print(f"[House] ⚠️ Type de toit '{roof_type}' inconnu, utilisation d'un toit plat")
-            roof = self._create_flat_roof(width, length, total_height, roof_overhang, collection)
+            roof = self._create_flat_roof(width, length, total_height, roof_overhang)
 
         roof.name = f"Roof_{roof_type}"
         roof["house_part"] = "roof"
@@ -712,7 +716,7 @@ class HOUSE_OT_generate_auto(Operator):
         
         return roof
     
-    def _create_flat_roof(self, width, length, height, overhang, collection):
+    def _create_flat_roof(self, width, length, height, overhang):
         """Toit plat"""
         thickness = ROOF_THICKNESS_FLAT
         
@@ -722,12 +726,29 @@ class HOUSE_OT_generate_auto(Operator):
         roof, mesh = self._create_box_mesh("Roof_Flat", location, dimensions)
         return roof
     
-    def _create_gable_roof(self, width, length, height, pitch, overhang, collection):
+    def _create_gable_roof(self, width, length, height, pitch, overhang):
         """Toit à 2 pans"""
         pitch_rad = math.radians(pitch)
+
+        # ✅ FIX BUG #8: Validation de pente extrême pour GABLE
+        if pitch < 15.0:
+            print(f"[House] ⚠️ Pente très faible ({pitch}°) - toit presque plat, considérez un toit FLAT")
+        elif pitch > 50.0:
+            print(f"[House] ⚠️ Pente très raide ({pitch}°) - toit très incliné, vérifiez le réalisme")
+
         roof_height = (width/2) * math.tan(pitch_rad)
+
+        # ✅ FIX BUG #2: Limiter la hauteur à 1.5× la hauteur des murs (réalisme)
+        max_roof_height = height * 1.5
+        if roof_height > max_roof_height:
+            print(f"[House] ⚠️ Toit à 2 pans trop haut ({roof_height:.2f}m), limité à {max_roof_height:.2f}m")
+            roof_height = max_roof_height
+
         roof_thickness = ROOF_THICKNESS_PITCHED
-        
+
+        # ✅ FIX BUG #6: Ajouter logging comme SHED/GAMBREL
+        print(f"[House] Toit à 2 pans: pente {pitch}°, hauteur {roof_height:.2f}m (largeur {width:.1f}m)")
+
         bm = bmesh.new()
         
         try:
@@ -762,13 +783,31 @@ class HOUSE_OT_generate_auto(Operator):
         
         return roof
     
-    def _create_hip_roof(self, width, length, height, pitch, overhang, collection):
+    def _create_hip_roof(self, width, length, height, pitch, overhang):
         """Toit à 4 pans"""
         pitch_rad = math.radians(pitch)
-        base_size = max(width, length) + overhang * 2
-        top_size = min(width, length) / 2
+
+        # ✅ FIX BUG #8: Validation de pente extrême pour HIP
+        if pitch < 15.0:
+            print(f"[House] ⚠️ Pente très faible ({pitch}°) - toit presque plat, considérez un toit FLAT")
+        elif pitch > 50.0:
+            print(f"[House] ⚠️ Pente très raide ({pitch}°) - toit très incliné, vérifiez le réalisme")
+
+        # ✅ FIX BUG #4: Calcul corrigé - utiliser dimensions moyennes au lieu de max/min
+        avg_size = (width + length) / 2
+        base_size = avg_size + overhang * 2
+        top_size = avg_size * 0.3  # Top = 30% de la base (proportionnel)
         roof_height = (base_size - top_size) / 2 * math.tan(pitch_rad)
-        
+
+        # ✅ FIX BUG #3: Limiter la hauteur à 1.5× la hauteur des murs (réalisme)
+        max_roof_height = height * 1.5
+        if roof_height > max_roof_height:
+            print(f"[House] ⚠️ Toit à 4 pans trop haut ({roof_height:.2f}m), limité à {max_roof_height:.2f}m")
+            roof_height = max_roof_height
+
+        # ✅ FIX BUG #6: Ajouter logging comme SHED/GAMBREL
+        print(f"[House] Toit à 4 pans: pente {pitch}°, hauteur {roof_height:.2f}m (dimensions {width:.1f}m × {length:.1f}m)")
+
         bm = bmesh.new()
         
         try:
@@ -793,7 +832,7 @@ class HOUSE_OT_generate_auto(Operator):
         
         return roof
     
-    def _create_shed_roof(self, width, length, height, pitch, overhang, collection):
+    def _create_shed_roof(self, width, length, height, pitch, overhang):
         """Toit monopente (monte de l'avant vers l'arrière, axe Y)"""
         pitch_rad = math.radians(pitch)
 
@@ -835,11 +874,12 @@ class HOUSE_OT_generate_auto(Operator):
             # Face inférieure (plafond)
             bm.faces.new([v4_bot, v3_bot, v2_bot, v1_bot])
 
-            # ✅ Faces latérales (fermeture du volume - ordre cohérent)
-            bm.faces.new([v1_top, v1_bot, v2_bot, v2_top])  # Avant (bas, Y = -o)
-            bm.faces.new([v3_top, v3_bot, v4_bot, v4_top])  # Arrière (haut, Y = length+o)
-            bm.faces.new([v4_top, v4_bot, v1_bot, v1_top])  # Gauche (trapèze, X = -o)
-            bm.faces.new([v2_top, v2_bot, v3_bot, v3_top])  # Droite (trapèze, X = width+o)
+            # ✅ FIX BUG #9: Clarification des formes géométriques des faces
+            # Faces latérales (fermeture du volume - ordre cohérent)
+            bm.faces.new([v1_top, v1_bot, v2_bot, v2_top])  # Avant (rectangle bas, Y = -o)
+            bm.faces.new([v3_top, v3_bot, v4_bot, v4_top])  # Arrière (rectangle haut, Y = length+o)
+            bm.faces.new([v4_top, v4_bot, v1_bot, v1_top])  # Gauche (trapèze incliné, X = -o)
+            bm.faces.new([v2_top, v2_bot, v3_bot, v3_top])  # Droite (trapèze incliné, X = width+o)
 
             roof, mesh = self._create_mesh_from_bmesh("ShedRoof", bm)
 
@@ -848,12 +888,13 @@ class HOUSE_OT_generate_auto(Operator):
 
         return roof
 
-    def _create_gambrel_roof(self, width, length, height, pitch, overhang, collection):
+    def _create_gambrel_roof(self, width, length, height, pitch, overhang):
         """Toit mansarde/gambrel (4 pans brisés)"""
         pitch_rad = math.radians(pitch)
 
+        # ✅ FIX BUG #7: Utiliser width au lieu de min(width, length) pour éviter asymétrie
         # Calcul des hauteurs (pente inférieure plus raide)
-        lower_height = (min(width, length) / 4) * math.tan(pitch_rad * 1.5)  # Pente raide
+        lower_height = (width / 4) * math.tan(pitch_rad * 1.5)  # Pente raide
         upper_height = lower_height * 0.4  # Partie supérieure plus plate
 
         # Limite réaliste

@@ -374,7 +374,9 @@ def apply_boolean_modifier(target_obj, tool_obj, operation='DIFFERENCE'):
     try:
         bpy.ops.object.modifier_apply(modifier=mod.name)
         return True
-    except:
+    except Exception as e:
+        # ✅ FIX BUG #5: Exception spécifique avec logging au lieu de bare except
+        print(f"[House] ⚠️ Échec application modificateur Boolean: {e}")
         return False
 
 
