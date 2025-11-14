@@ -16,6 +16,9 @@ import random
 # Import du module de fenêtres
 from .windows import WindowGenerator
 
+# Import du système de sols avancé
+from .flooring import FlooringGenerator, QUALITY_LOW, QUALITY_MEDIUM, QUALITY_HIGH, QUALITY_ULTRA
+
 # ============================================================
 # MODE DEBUG (activer pour logs détaillés)
 # ============================================================
@@ -673,31 +676,77 @@ class HOUSE_OT_generate_auto(Operator):
         return openings
     
     def _generate_floors(self, context, props, collection):
-        """Génère les planchers"""
+        """Génère les planchers (simple ou système avancé)"""
         width = props.house_width
         length = props.house_length
         floor_thickness = FLOOR_THICKNESS
-        
+
         floors = []
-        
+
+        # ✅ SYSTÈME AVANCÉ: Utiliser flooring.py si activé
+        if hasattr(props, 'use_flooring_system') and props.use_flooring_system:
+            print("[House] Utilisation du système de sols avancé")
+
+            # Mapper qualité property vers constantes flooring
+            quality_map = {
+                'LOW': QUALITY_LOW,
+                'MEDIUM': QUALITY_MEDIUM,
+                'HIGH': QUALITY_HIGH,
+                'ULTRA': QUALITY_ULTRA
+            }
+            quality = quality_map.get(props.flooring_quality, QUALITY_HIGH)
+
+            # Créer le générateur
+            flooring_gen = FlooringGenerator(quality=quality)
+
+            # Générer les sols pour chaque étage
+            for floor_num in range(props.num_floors):
+                if floor_num == 0:
+                    z_pos = 0  # Sol rez-de-chaussée au niveau 0
+                else:
+                    z_pos = floor_num * props.floor_height
+
+                inset_width = width * FLOOR_INSET
+                inset_length = length * FLOOR_INSET
+
+                room_name = "RDC" if floor_num == 0 else f"Etage{floor_num}"
+
+                # ✅ Générer le sol avec le système avancé
+                floor_obj = flooring_gen.generate_floor(
+                    floor_type=props.flooring_type,
+                    width=inset_width,
+                    length=inset_length,
+                    room_name=room_name,
+                    height=z_pos
+                )
+
+                if floor_obj:
+                    # Position centrée dans la maison
+                    floor_obj.location = (width/2 - inset_width/2, length/2 - inset_length/2, 0)
+                    collection.objects.link(floor_obj)
+                    floors.append(floor_obj)
+
+            return floors
+
+        # ✅ SYSTÈME SIMPLE (code original)
         for floor_num in range(props.num_floors):
             if floor_num == 0:
                 z_pos = floor_thickness / 2
             else:
                 z_pos = floor_num * props.floor_height + floor_thickness / 2
-            
+
             inset_width = width * FLOOR_INSET
             inset_length = length * FLOOR_INSET
-            
+
             location = Vector((width/2, length/2, z_pos))
             dimensions = Vector((inset_width, inset_length, floor_thickness))
-            
+
             floor_name = f"Floor_Ground" if floor_num == 0 else f"Floor_{floor_num}"
             floor, mesh = self._create_box_mesh(floor_name, location, dimensions)
             collection.objects.link(floor)
             floor["house_part"] = "floor"
             floors.append(floor)
-        
+
         return floors
     
     def _generate_roof(self, context, props, collection):
