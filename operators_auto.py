@@ -477,6 +477,21 @@ class HOUSE_OT_generate_auto(Operator):
         wall_thickness = WALL_THICKNESS
         total_height = props.num_floors * props.floor_height
 
+        # ✅ FIX CRITIQUE SHED: Adapter hauteur murs selon type toit
+        roof_type = props.roof_type
+        roof_pitch = props.roof_pitch
+
+        # Calculer hauteur additionnelle pour toit SHED
+        shed_extra_height = 0
+        if roof_type == 'SHED':
+            pitch_rad = math.radians(roof_pitch)
+            shed_extra_height = length * math.tan(pitch_rad)
+            # Limiter à 1.5× hauteur murs
+            max_extra = total_height * 0.5
+            if shed_extra_height > max_extra:
+                shed_extra_height = max_extra
+            print(f"[House] Toit SHED: mur arrière surélevé de {shed_extra_height:.2f}m")
+
         # Aligner murs avec le dessus de la fondation
         base_z = 0
 
@@ -501,10 +516,19 @@ class HOUSE_OT_generate_auto(Operator):
                 bm.verts.new((width - wall_thickness, length - wall_thickness, base_z)),
                 bm.verts.new((wall_thickness, length - wall_thickness, base_z))
             ]
-            
-            # Vertices du haut
-            outer_top = [bm.verts.new(v.co + Vector((0, 0, h))) for v in outer]
-            inner_top = [bm.verts.new(v.co + Vector((0, 0, h))) for v in inner]
+
+            # ✅ FIX CRITIQUE SHED: Vertices du haut avec hauteurs adaptées
+            # Pour SHED: murs arrière (indices 2, 3) plus hauts
+            outer_top = []
+            inner_top = []
+            for i, v in enumerate(outer):
+                # Indices 2 et 3 = mur arrière (côté Y+)
+                extra_h = shed_extra_height if (i >= 2 and roof_type == 'SHED') else 0
+                outer_top.append(bm.verts.new(v.co + Vector((0, 0, h + extra_h))))
+
+            for i, v in enumerate(inner):
+                extra_h = shed_extra_height if (i >= 2 and roof_type == 'SHED') else 0
+                inner_top.append(bm.verts.new(v.co + Vector((0, 0, h + extra_h))))
             
             # Faces verticales extérieures
             for i in range(4):
@@ -784,7 +808,7 @@ class HOUSE_OT_generate_auto(Operator):
         return roof
     
     def _create_hip_roof(self, width, length, height, pitch, overhang):
-        """Toit à 4 pans"""
+        """Toit à 4 pans RECTANGULAIRE (vrai toit en croupe)"""
         pitch_rad = math.radians(pitch)
 
         # ✅ FIX BUG #8: Validation de pente extrême pour HIP
@@ -793,11 +817,12 @@ class HOUSE_OT_generate_auto(Operator):
         elif pitch > 50.0:
             print(f"[House] ⚠️ Pente très raide ({pitch}°) - toit très incliné, vérifiez le réalisme")
 
-        # ✅ FIX BUG #4: Calcul corrigé - utiliser dimensions moyennes au lieu de max/min
-        avg_size = (width + length) / 2
-        base_size = avg_size + overhang * 2
-        top_size = avg_size * 0.3  # Top = 30% de la base (proportionnel)
-        roof_height = (base_size - top_size) / 2 * math.tan(pitch_rad)
+        # ✅ FIX CRITIQUE: Calcul basé sur la plus petite dimension (standard architectural)
+        # Le toit HIP s'élève depuis les bords jusqu'au faîtage central
+        min_dim = min(width, length)
+
+        # Hauteur basée sur la moitié de la plus petite dimension
+        roof_height = (min_dim / 2) * math.tan(pitch_rad)
 
         # ✅ FIX BUG #3: Limiter la hauteur à 1.5× la hauteur des murs (réalisme)
         max_roof_height = height * 1.5
@@ -805,31 +830,97 @@ class HOUSE_OT_generate_auto(Operator):
             print(f"[House] ⚠️ Toit à 4 pans trop haut ({roof_height:.2f}m), limité à {max_roof_height:.2f}m")
             roof_height = max_roof_height
 
-        # ✅ FIX BUG #6: Ajouter logging comme SHED/GAMBREL
         print(f"[House] Toit à 4 pans: pente {pitch}°, hauteur {roof_height:.2f}m (dimensions {width:.1f}m × {length:.1f}m)")
 
+        # ✅ SÉCURITÉ: Vérification dimensions valides
+        if width <= 0 or length <= 0 or roof_height <= 0:
+            print(f"[House] ❌ ERREUR: Dimensions invalides pour toit HIP (w={width}, l={length}, h={roof_height})")
+            # Fallback: créer un toit plat minimal
+            return self._create_flat_roof(width, length, height, overhang)
+
         bm = bmesh.new()
-        
+
         try:
-            bmesh.ops.create_cone(
-                bm,
-                cap_ends=True,
-                segments=4,
-                radius1=base_size / 2,
-                radius2=top_size / 2,
-                depth=roof_height
-            )
-            
-            rotation_matrix = Matrix.Rotation(math.radians(45), 4, 'Z')
-            bmesh.ops.rotate(bm, verts=bm.verts, cent=(0, 0, 0), matrix=rotation_matrix)
-            
+            o = overhang
+            h = height
+            w = width
+            l = length
+            rh = roof_height
+            roof_thickness = ROOF_THICKNESS_PITCHED
+
+            # ✅ GÉOMÉTRIE MANUELLE RECTANGULAIRE (pas de cone!)
+            # Calculer le faîtage selon les proportions
+            if width > length:
+                # Maison plus large que longue: faîtage horizontal le long de X
+                ridge_length = width - length
+
+                # Base (8 vertices du périmètre avec overhang)
+                v1 = bm.verts.new((-o, -o, h))                    # Avant-gauche
+                v2 = bm.verts.new((w + o, -o, h))                 # Avant-droit
+                v3 = bm.verts.new((w + o, l + o, h))              # Arrière-droit
+                v4 = bm.verts.new((-o, l + o, h))                 # Arrière-gauche
+
+                # Faîtage (2 vertices au sommet)
+                ridge_start_x = (w - ridge_length) / 2
+                ridge_end_x = ridge_start_x + ridge_length
+                ridge_y = l / 2
+
+                v5 = bm.verts.new((ridge_start_x, ridge_y, h + rh))    # Sommet gauche
+                v6 = bm.verts.new((ridge_end_x, ridge_y, h + rh))      # Sommet droit
+
+                # Faces du toit (4 pans)
+                bm.faces.new([v1, v2, v6, v5])  # Pan avant (trapèze)
+                bm.faces.new([v3, v4, v5, v6])  # Pan arrière (trapèze)
+                bm.faces.new([v1, v5, v4])      # Pan gauche (triangle)
+                bm.faces.new([v2, v3, v6])      # Pan droit (triangle)
+
+            elif length > width:
+                # Maison plus longue que large: faîtage horizontal le long de Y
+                ridge_length = length - width
+
+                # Base (périmètre avec overhang)
+                v1 = bm.verts.new((-o, -o, h))
+                v2 = bm.verts.new((w + o, -o, h))
+                v3 = bm.verts.new((w + o, l + o, h))
+                v4 = bm.verts.new((-o, l + o, h))
+
+                # Faîtage le long de Y
+                ridge_x = w / 2
+                ridge_start_y = (l - ridge_length) / 2
+                ridge_end_y = ridge_start_y + ridge_length
+
+                v5 = bm.verts.new((ridge_x, ridge_start_y, h + rh))   # Sommet avant
+                v6 = bm.verts.new((ridge_x, ridge_end_y, h + rh))     # Sommet arrière
+
+                # Faces du toit (4 pans)
+                bm.faces.new([v1, v2, v5])      # Pan avant (triangle)
+                bm.faces.new([v3, v4, v6])      # Pan arrière (triangle)
+                bm.faces.new([v1, v5, v6, v4])  # Pan gauche (trapèze)
+                bm.faces.new([v2, v3, v6, v5])  # Pan droit (trapèze)
+            else:
+                # Maison carrée: pyramide à 4 pans triangulaires
+                v1 = bm.verts.new((-o, -o, h))
+                v2 = bm.verts.new((w + o, -o, h))
+                v3 = bm.verts.new((w + o, l + o, h))
+                v4 = bm.verts.new((-o, l + o, h))
+
+                # Sommet unique au centre
+                v5 = bm.verts.new((w / 2, l / 2, h + rh))
+
+                # 4 faces triangulaires
+                bm.faces.new([v1, v2, v5])
+                bm.faces.new([v2, v3, v5])
+                bm.faces.new([v3, v4, v5])
+                bm.faces.new([v4, v1, v5])
+
             roof, mesh = self._create_mesh_from_bmesh("HipRoof", bm)
-            
+
         finally:
             bm.free()
-        
-        roof.location = (width/2, length/2, height + roof_height/2)
-        
+
+        # ✅ Position centrée
+        roof.location = (0, 0, 0)
+
         return roof
     
     def _create_shed_roof(self, width, length, height, pitch, overhang):
