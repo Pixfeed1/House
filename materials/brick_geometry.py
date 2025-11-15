@@ -1072,7 +1072,7 @@ def is_brick_in_opening(brick_x, brick_y, brick_z, brick_width, brick_height, op
     # ✅ SÉCURITÉ 2: Calculer le centre de la brique avec validation
     try:
         brick_center_x = brick_x + brick_width / 2
-        brick_center_y = brick_y + brick_height / 2  # ✅ FIX: AJOUTÉ (était manquant!)
+        brick_center_y = brick_y + BRICK_DEPTH / 2  # ✅ FIX CORRIGÉ: Utiliser BRICK_DEPTH pour Y (profondeur), pas brick_height!
         brick_center_z = brick_z + brick_height / 2
     except (TypeError, ValueError) as e:
         print(f"[BrickGeometry] ❌ Erreur calcul centre brique: {e}")
@@ -1157,7 +1157,7 @@ def is_mortar_in_opening(mortar_x, mortar_y, mortar_z, mortar_width, mortar_heig
     # ✅ SÉCURITÉ 2: Calculer centre avec validation
     try:
         mortar_center_x = mortar_x + mortar_width / 2
-        mortar_center_y = mortar_y + mortar_height / 2  # ✅ FIX: AJOUTÉ
+        mortar_center_y = mortar_y + BRICK_DEPTH / 2  # ✅ FIX CORRIGÉ: Utiliser BRICK_DEPTH pour Y (profondeur)
         mortar_center_z = mortar_z + mortar_height / 2
     except (TypeError, ValueError):
         return False
