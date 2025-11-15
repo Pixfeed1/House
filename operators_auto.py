@@ -22,6 +22,10 @@ from .floor_types import FlooringGenerator, QUALITY_LOW, QUALITY_MEDIUM, QUALITY
 # Import du système de gouttières
 from .gutters import GuttersGenerator
 
+# Import du système de finitions murales intérieures
+from .interior_walls import InteriorWallFinishManager
+from .interior_walls.paint_colors import get_paint_color
+
 # ============================================================
 # MODE DEBUG (activer pour logs détaillés)
 # ============================================================
@@ -148,6 +152,13 @@ class HOUSE_OT_generate_auto(Operator):
             self._generate_floors(context, props, house_collection)
             progress += 10
             wm.progress_update(progress)
+
+            # ✅ NOUVEAU: Finitions murales intérieures (si activé)
+            if hasattr(props, 'use_interior_walls_system') and props.use_interior_walls_system:
+                print("[House] Finitions murales intérieures...")
+                self._generate_interior_wall_finishes(context, props, house_collection)
+                progress += 5
+                wm.progress_update(progress)
 
             print("[House] Toit...")
             self._generate_roof(context, props, house_collection)
@@ -842,7 +853,120 @@ class HOUSE_OT_generate_auto(Operator):
             floors.append(floor)
 
         return floors
-    
+
+    def _generate_interior_wall_finishes(self, context, props, collection):
+        """Génère les finitions murales intérieures (peinture, papier peint, etc.)
+
+        ✅ NOUVEAU SYSTÈME: Utilise interior_walls/ pour générer les finitions
+        """
+        # Vérifier si le système est activé
+        if not (hasattr(props, 'use_interior_walls_system') and props.use_interior_walls_system):
+            print("[House] Système de finitions murales intérieures désactivé")
+            return []
+
+        print(f"[House] Génération finitions murales intérieures (type: {props.interior_wall_finish})")
+
+        width = props.house_width
+        length = props.house_length
+        wall_thickness = WALL_THICKNESS
+        floor_height = props.floor_height
+
+        # ✅ Mapping entre properties.py et interior_walls/__init__.py
+        FINISH_TYPE_MAPPING = {
+            'PAINT': 'PEINTURE',
+            'WALLPAPER': 'PAPIER_PEINT',
+            'PLASTER': 'ENDUIT',
+            'WOOD': 'BOIS',
+            'STONE': 'PIERRE',
+            'EXPOSED_BRICK': 'BRIQUE_APPARENTE'
+        }
+
+        # Préparer les options selon le type de finition
+        finish_type_property = props.interior_wall_finish
+        finish_type = FINISH_TYPE_MAPPING.get(finish_type_property, 'PEINTURE')
+        custom_options = {}
+
+        # Options PEINTURE
+        if finish_type_property == 'PAINT':
+            # Récupérer la couleur (preset ou custom)
+            if props.paint_color_preset == 'CUSTOM':
+                custom_options['color'] = props.paint_color_custom
+            else:
+                custom_options['color'] = get_paint_color(props.paint_color_preset)
+
+            custom_options['paint_type'] = props.paint_type
+            print(f"[House] Peinture: {props.paint_type}, couleur: {custom_options['color']}")
+
+        # Options PAPIER PEINT
+        elif finish_type_property == 'WALLPAPER':
+            custom_options['image_path'] = props.wallpaper_image_path
+            custom_options['wallpaper_type'] = props.wallpaper_type
+            print(f"[House] Papier peint: {props.wallpaper_type}")
+
+        # Pour l'instant, générer uniquement pour le rez-de-chaussée
+        # TODO: Supporter multi-étages
+
+        finishes = []
+
+        # ✅ Mur AVANT (face intérieure, orientation Y+)
+        front_finish = InteriorWallFinishManager.generate_finish_geometry(
+            finish_type,
+            width=width - 2*wall_thickness,
+            height=floor_height,
+            **custom_options
+        )
+        if front_finish:
+            front_finish.location = (wall_thickness, wall_thickness, 0)
+            front_finish.rotation_euler = (0, 0, 0)
+            front_finish.name = f"Interior_Finish_Front_{finish_type}"
+            collection.objects.link(front_finish)
+            finishes.append(front_finish)
+
+        # ✅ Mur ARRIÈRE (face intérieure, orientation Y-)
+        back_finish = InteriorWallFinishManager.generate_finish_geometry(
+            finish_type,
+            width=width - 2*wall_thickness,
+            height=floor_height,
+            **custom_options
+        )
+        if back_finish:
+            back_finish.location = (width - wall_thickness, length - wall_thickness, 0)
+            back_finish.rotation_euler = (0, 0, math.pi)  # 180° rotation
+            back_finish.name = f"Interior_Finish_Back_{finish_type}"
+            collection.objects.link(back_finish)
+            finishes.append(back_finish)
+
+        # ✅ Mur GAUCHE (face intérieure, orientation X+)
+        left_finish = InteriorWallFinishManager.generate_finish_geometry(
+            finish_type,
+            width=length - 2*wall_thickness,
+            height=floor_height,
+            **custom_options
+        )
+        if left_finish:
+            left_finish.location = (wall_thickness, length - wall_thickness, 0)
+            left_finish.rotation_euler = (0, 0, -math.pi/2)  # -90° rotation
+            left_finish.name = f"Interior_Finish_Left_{finish_type}"
+            collection.objects.link(left_finish)
+            finishes.append(left_finish)
+
+        # ✅ Mur DROIT (face intérieure, orientation X-)
+        right_finish = InteriorWallFinishManager.generate_finish_geometry(
+            finish_type,
+            width=length - 2*wall_thickness,
+            height=floor_height,
+            **custom_options
+        )
+        if right_finish:
+            right_finish.location = (width - wall_thickness, wall_thickness, 0)
+            right_finish.rotation_euler = (0, 0, math.pi/2)  # 90° rotation
+            right_finish.name = f"Interior_Finish_Right_{finish_type}"
+            collection.objects.link(right_finish)
+            finishes.append(right_finish)
+
+        print(f"[House] ✅ {len(finishes)} panneaux de finition générés")
+        return finishes
+
     def _generate_roof(self, context, props, collection):
         """Génère le toit"""
         width = props.house_width
