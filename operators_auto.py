@@ -719,30 +719,34 @@ class HOUSE_OT_generate_auto(Operator):
             for i in range(num_windows_side):
                 y_pos = spacing_side * (i + 1)
                 opening_y = y_pos - window_width/2
-                
+
+                # ✅ FIX CRITIQUE: Pour murs LEFT/RIGHT (direction Y), swapper width et depth
+                # - width devrait être le long de X (= WALL_THICKNESS)
+                # - depth devrait être le long de Y (= window_width)
                 openings.append({
                     'x': 0,
                     'y': opening_y,
                     'z': window_z,
-                    'width': window_width,
+                    'width': WALL_THICKNESS,  # ✅ FIX: dimension le long de X
                     'height': window_height,
-                    'depth': WALL_THICKNESS,
+                    'depth': window_width,  # ✅ FIX: dimension le long de Y
                     'wall': 'left',
                     'type': 'window'
                 })
-            
+
             # Mur DROIT
             for i in range(num_windows_side):
                 y_pos = spacing_side * (i + 1)
                 opening_y = y_pos - window_width/2
-                
+
+                # ✅ FIX CRITIQUE: Pour murs LEFT/RIGHT (direction Y), swapper width et depth
                 openings.append({
                     'x': width,
                     'y': opening_y,
                     'z': window_z,
-                    'width': window_width,
+                    'width': WALL_THICKNESS,  # ✅ FIX: dimension le long de X
                     'height': window_height,
-                    'depth': WALL_THICKNESS,
+                    'depth': window_width,  # ✅ FIX: dimension le long de Y
                     'wall': 'right',
                     'type': 'window'
                 })
