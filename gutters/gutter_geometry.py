@@ -158,8 +158,8 @@ def create_gutter_mesh_section(length, style='HALF_ROUND', quality='MEDIUM'):
     # Créer objet
     obj = bpy.data.objects.new("Gutter", mesh)
 
-    # Calculer normales
-    mesh.calc_normals()
+    # Calculer normales (Blender 4.x)
+    mesh.update()
 
     return obj
 
@@ -250,7 +250,7 @@ def create_downspout_mesh(height, style='ROUND', quality='MEDIUM'):
     bm.free()
 
     obj = bpy.data.objects.new("Downspout", mesh)
-    mesh.calc_normals()
+    mesh.update()
 
     return obj
 
