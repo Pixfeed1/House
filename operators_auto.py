@@ -19,6 +19,9 @@ from .windows import WindowGenerator
 # Import du système de sols avancé (architecture modulaire)
 from .floor_types import FlooringGenerator, QUALITY_LOW, QUALITY_MEDIUM, QUALITY_HIGH, QUALITY_ULTRA
 
+# Import du système de gouttières
+from .gutters import GuttersGenerator
+
 # ============================================================
 # MODE DEBUG (activer pour logs détaillés)
 # ============================================================
@@ -864,7 +867,11 @@ class HOUSE_OT_generate_auto(Operator):
         roof.name = f"Roof_{roof_type}"
         roof["house_part"] = "roof"
         collection.objects.link(roof)
-        
+
+        # Générer les gouttières si activées
+        if props.add_gutters:
+            self._generate_gutters(context, props, collection, total_height, roof_overhang)
+
         return roof
     
     def _create_flat_roof(self, width, length, height, overhang):
@@ -1390,7 +1397,61 @@ class HOUSE_OT_generate_auto(Operator):
                 )
     
     # [... Les autres fonctions garage, terrace, balcony, lighting restent identiques ...]
-    
+    def _generate_gutters(self, context, props, collection, roof_height, roof_overhang):
+        """Génère le système de gouttières
+
+        Args:
+            context: Contexte Blender
+            props: Propriétés de la maison
+            collection: Collection où ajouter les gouttières
+            roof_height: Hauteur du toit (base)
+            roof_overhang: Débord du toit
+        """
+        print("[House] Génération des gouttières...")
+
+        width = props.house_width
+        length = props.house_length
+
+        # Déterminer le style de gouttière
+        gutter_style = props.gutter_style
+        if gutter_style == 'AUTO':
+            # Utiliser le mapping automatique selon style architectural
+            from .gutters.gutter_geometry import get_gutter_style_from_architectural_style
+            gutter_style, downspout_style = get_gutter_style_from_architectural_style(
+                props.architectural_style
+            )
+        else:
+            # Utiliser le style choisi manuellement
+            downspout_style = 'ROUND' if gutter_style == 'HALF_ROUND' else 'SQUARE'
+
+        # Déterminer le matériau
+        material_type = props.gutter_material_type if props.gutter_material_type != 'AUTO' else 'AUTO'
+
+        # Créer le générateur
+        generator = GuttersGenerator(quality=props.gutter_quality)
+
+        # Générer les gouttières
+        gutter_objects = generator.generate(
+            house_width=width,
+            house_length=length,
+            roof_height=roof_height,
+            architectural_style=props.architectural_style,
+            roof_type=props.roof_type,
+            roof_overhang=roof_overhang,
+            collection=collection,
+            material_type=material_type
+        )
+
+        # Marquer les objets comme parties de la maison
+        for obj in gutter_objects:
+            obj["house_part"] = "gutter"
+
+        print(f"[House] ✓ {len(gutter_objects)} objets gouttières créés")
+        print(f"  Style: {gutter_style}")
+        print(f"  Matériau: {material_type}")
+
+        return gutter_objects
+
     def _generate_garage(self, context, props, collection):
         """Génère un garage"""
         width = props.house_width

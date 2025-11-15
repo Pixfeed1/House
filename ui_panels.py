@@ -314,7 +314,52 @@ class HOUSE_PT_elements_panel(Panel):
         
         box = layout.box()
         box.prop(props, "add_chimney", text="Cheminée", toggle=True)
-        
+
+        box = layout.box()
+        box.label(text="Gouttières", icon='MOD_WAVE')
+        row = box.row()
+        row.prop(props, "add_gutters", text="Ajouter gouttières", toggle=True)
+
+        if props.add_gutters:
+            box.separator()
+            col = box.column(align=True)
+            col.label(text="Style:", icon='MESH_GRID')
+            col.prop(props, "gutter_style", text="")
+
+            col.separator()
+            col.label(text="Matériau:", icon='MATERIAL')
+            col.prop(props, "gutter_material_type", text="")
+
+            # Info selon le style sélectionné
+            style_descriptions = {
+                'AUTO': "Adapté au style architectural",
+                'HALF_ROUND': "Classique européen",
+                'K_STYLE': "Moderne américain",
+                'BOX': "Moderne/commercial",
+                'EUROPEAN': "Trapézoïdale européenne",
+            }
+
+            material_descriptions = {
+                'AUTO': "Adapté au style architectural",
+                'ALUMINUM': "Léger et durable",
+                'COPPER': "Élégant, haute gamme",
+                'ZINC': "Moderne et durable",
+                'PVC': "Économique",
+                'STEEL': "Robuste",
+            }
+
+            if props.gutter_style in style_descriptions or props.gutter_material_type in material_descriptions:
+                info_box = box.box()
+                info_box.scale_y = 0.7
+                if props.gutter_style in style_descriptions:
+                    info_box.label(text=f"Style: {style_descriptions[props.gutter_style]}", icon='INFO')
+                if props.gutter_material_type in material_descriptions:
+                    info_box.label(text=f"Mat: {material_descriptions[props.gutter_material_type]}", icon='INFO')
+
+            col.separator()
+            col.label(text="Qualité:", icon='SHADING_RENDERED')
+            col.prop(props, "gutter_quality", text="")
+
         layout.separator()
         box = layout.box()
         box.label(text="Fondations", icon='MESH_PLANE')

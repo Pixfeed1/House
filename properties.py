@@ -448,6 +448,58 @@ class HouseGeneratorProperties(PropertyGroup):
     )
 
     # ============================================================
+    # GOUTTIÈRES (RAIN GUTTERS)
+    # ============================================================
+
+    add_gutters: BoolProperty(
+        name="Ajouter gouttières",
+        description="Ajouter un système de gouttières le long du toit",
+        default=True,
+        update=regenerate_house
+    )
+
+    gutter_style: EnumProperty(
+        name="Style gouttière",
+        description="Style de gouttière (adapté automatiquement au style architectural)",
+        items=[
+            ('AUTO', "Automatique", "Style adapté à l'architecture", 'AUTO', 0),
+            ('HALF_ROUND', "Demi-ronde", "Gouttière classique européenne", 'SPHERE', 1),
+            ('K_STYLE', "Style K", "Gouttière américaine moderne", 'MESH_UVSPHERE', 2),
+            ('BOX', "Rectangulaire", "Gouttière moderne/commerciale", 'MESH_CUBE', 3),
+            ('EUROPEAN', "Trapézoïdale", "Gouttière trapézoïdale européenne", 'MESH_GRID', 4),
+        ],
+        default='AUTO',
+        update=regenerate_house
+    )
+
+    gutter_material_type: EnumProperty(
+        name="Matériau gouttières",
+        description="Type de matériau pour les gouttières",
+        items=[
+            ('AUTO', "Automatique", "Matériau adapté au style architectural", 'AUTO', 0),
+            ('ALUMINUM', "Aluminium", "Gouttières en aluminium (léger, durable)", 'MATERIAL', 1),
+            ('COPPER', "Cuivre", "Gouttières en cuivre (élégant, haute gamme)", 'MATERIAL', 2),
+            ('ZINC', "Zinc", "Gouttières en zinc (moderne, durable)", 'MATERIAL', 3),
+            ('PVC', "PVC", "Gouttières en plastique (économique)", 'MATERIAL', 4),
+            ('STEEL', "Acier galvanisé", "Gouttières en acier (robuste)", 'MATERIAL', 5),
+        ],
+        default='AUTO',
+        update=regenerate_house
+    )
+
+    gutter_quality: EnumProperty(
+        name="Qualité gouttières",
+        description="Niveau de détail géométrique des gouttières",
+        items=[
+            ('LOW', "Basse", "Minimal, rapide", 0),
+            ('MEDIUM', "Moyenne", "Bon équilibre", 1),
+            ('HIGH', "Haute", "Très détaillé", 2),
+        ],
+        default='MEDIUM',
+        update=regenerate_house
+    )
+
+    # ============================================================
     # DISTRIBUTION DES PIÈCES
     # ============================================================
 
