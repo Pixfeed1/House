@@ -351,6 +351,110 @@ class HOUSE_PT_rooms_panel(Panel):
             col.prop(props, "num_bathrooms", text="Nombre SDB")
 
 
+class HOUSE_PT_flooring_panel(Panel):
+    """Panneau pour les options de sols"""
+    bl_label = "Sols"
+    bl_idname = "HOUSE_PT_flooring_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'House'
+    bl_parent_id = "HOUSE_PT_main_panel"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.house_generator
+
+        layout.use_property_split = False
+
+        layout.prop(props, "use_flooring_system", text="Activer système sols", toggle=True)
+
+        if not props.use_flooring_system:
+            return
+
+        layout.separator()
+
+        box = layout.box()
+        box.label(text="Type de revêtement", icon='MATERIAL')
+        box.prop(props, "flooring_type", text="")
+
+        # Descriptions des types de sols
+        floor_descriptions = {
+            'HARDWOOD_SOLID': "Bois véritable, très durable",
+            'HARDWOOD_ENGINEERED': "Plus stable, facile à poser",
+            'LAMINATE': "Imitation bois, économique",
+            'CERAMIC_TILE': "Résistant, cuisine/SDB",
+            'PORCELAIN_TILE': "Plus robuste que céramique",
+            'VINYL': "Économique, étanche",
+            'LINOLEUM': "Naturel, antibactérien",
+            'MARBLE': "Élégant, haut de gamme",
+            'NATURAL_STONE': "Travertin, ardoise, granit",
+            'POLISHED_CONCRETE': "Moderne, contemporain",
+            'CARPET': "Confortable, absorbe le son",
+            'CORK': "Naturel, isolant",
+        }
+
+        if props.flooring_type in floor_descriptions:
+            info_box = box.box()
+            info_box.scale_y = 0.8
+            info_box.label(text=floor_descriptions[props.flooring_type], icon='INFO')
+
+        layout.separator()
+
+        box = layout.box()
+        box.label(text="Qualité géométrie", icon='MESH_GRID')
+        box.prop(props, "flooring_quality", text="")
+
+
+class HOUSE_PT_interior_walls_panel(Panel):
+    """Panneau pour les finitions des murs intérieurs"""
+    bl_label = "Murs intérieurs"
+    bl_idname = "HOUSE_PT_interior_walls_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'House'
+    bl_parent_id = "HOUSE_PT_main_panel"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.house_generator
+
+        layout.use_property_split = False
+
+        layout.prop(props, "use_interior_walls_system", text="Activer finitions intérieures", toggle=True)
+
+        if not props.use_interior_walls_system:
+            return
+
+        layout.separator()
+
+        box = layout.box()
+        box.label(text="Finition murale", icon='MATERIAL')
+        box.prop(props, "interior_wall_finish", text="")
+
+        # Descriptions des finitions
+        finish_descriptions = {
+            'PAINT': "Peinture murale classique",
+            'WALLPAPER': "Papier peint avec motifs",
+            'WOOD_PANELING': "Lambris bois naturel",
+            'EXPOSED_BRICK': "Briques apparentes",
+            'NATURAL_STONE': "Pierre naturelle",
+            'PLASTER': "Enduit décoratif",
+        }
+
+        if props.interior_wall_finish in finish_descriptions:
+            info_box = box.box()
+            info_box.scale_y = 0.8
+            info_box.label(text=finish_descriptions[props.interior_wall_finish], icon='INFO')
+
+        layout.separator()
+
+        box = layout.box()
+        box.label(text="Qualité géométrie", icon='MESH_GRID')
+        box.prop(props, "interior_wall_quality", text="")
+
+
 class HOUSE_PT_advanced_panel(Panel):
     """Panneau pour les options avancées"""
     bl_label = "Options avancées"
@@ -428,6 +532,8 @@ classes = (
     HOUSE_PT_windows_panel,
     HOUSE_PT_doors_panel,
     HOUSE_PT_walls_panel,
+    HOUSE_PT_flooring_panel,
+    HOUSE_PT_interior_walls_panel,
     HOUSE_PT_materials_panel,
     HOUSE_PT_elements_panel,
     HOUSE_PT_rooms_panel,

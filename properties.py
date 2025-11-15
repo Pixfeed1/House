@@ -727,6 +727,45 @@ class HouseGeneratorProperties(PropertyGroup):
     )
 
     # ============================================================
+    # MURS INTÉRIEURS (SYSTÈME AVANCÉ)
+    # ============================================================
+
+    use_interior_walls_system: BoolProperty(
+        name="Utiliser système murs intérieurs",
+        description="Activer le système avancé de finitions murales intérieures",
+        default=False,
+        update=regenerate_house
+    )
+
+    interior_wall_finish: EnumProperty(
+        name="Finition murs intérieurs",
+        description="Type de finition pour les murs intérieurs",
+        items=[
+            ('PAINT', "Peinture", "Mur peint (nombreuses couleurs disponibles)", 'COLOR', 0),
+            ('WALLPAPER', "Papier peint", "Papier peint avec motifs", 'TEXTURE', 1),
+            ('WOOD_PANELING', "Lambris bois", "Panneaux de bois (chêne, pin, etc.)", 'MATERIAL', 2),
+            ('EXPOSED_BRICK', "Brique apparente", "Mur en briques apparentes", 'MATERIAL', 3),
+            ('NATURAL_STONE', "Pierre naturelle", "Pierre apparente", 'MATERIAL', 4),
+            ('PLASTER', "Enduit", "Enduit décoratif (lisse, grain, etc.)", 'MATERIAL', 5),
+        ],
+        default='PAINT',
+        update=regenerate_house
+    )
+
+    interior_wall_quality: EnumProperty(
+        name="Qualité mesh murs intérieurs",
+        description="Niveau de détail géométrique des murs intérieurs",
+        items=[
+            ('LOW', "Basse", "Minimal, rapide", 0),
+            ('MEDIUM', "Moyenne", "Bon équilibre", 1),
+            ('HIGH', "Haute", "Très détaillé", 2),
+            ('ULTRA', "Ultra", "Maximum de détails (lourd)", 3),
+        ],
+        default='MEDIUM',
+        update=regenerate_house
+    )
+
+    # ============================================================
     # MODE MANUEL
     # ============================================================
     
