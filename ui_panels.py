@@ -423,26 +423,113 @@ class HOUSE_PT_flooring_panel(Panel):
         box.label(text="Type de revêtement", icon='MATERIAL')
         box.prop(props, "flooring_type", text="")
 
-        # Descriptions des types de sols
-        floor_descriptions = {
-            'HARDWOOD_SOLID': "Bois véritable, très durable",
-            'HARDWOOD_ENGINEERED': "Plus stable, facile à poser",
-            'LAMINATE': "Imitation bois, économique",
-            'CERAMIC_TILE': "Résistant, cuisine/SDB",
-            'PORCELAIN_TILE': "Plus robuste que céramique",
-            'VINYL': "Économique, étanche",
-            'LINOLEUM': "Naturel, antibactérien",
-            'MARBLE': "Élégant, haut de gamme",
-            'NATURAL_STONE': "Travertin, ardoise, granit",
-            'POLISHED_CONCRETE': "Moderne, contemporain",
-            'CARPET': "Confortable, absorbe le son",
-            'CORK': "Naturel, isolant",
-        }
+        layout.separator()
 
-        if props.flooring_type in floor_descriptions:
+        # ============================================================
+        # OPTIONS SELON TYPE DE SOL
+        # ============================================================
+
+        floor_type = props.flooring_type
+
+        if floor_type in ['HARDWOOD_SOLID', 'HARDWOOD_ENGINEERED', 'LAMINATE']:
+            # Options PARQUET/BOIS
+            box = layout.box()
+            box.label(text="Options bois", icon='MATERIAL')
+
+            col = box.column(align=True)
+            col.label(text="Essence de bois:", icon='COLORSET_05_VEC')
+            col.prop(props, "parquet_wood_type", text="")
+
+            # Info selon essence
+            wood_info = {
+                'OAK': "Chêne - Classique durable",
+                'WALNUT': "Noyer - Brun foncé élégant",
+                'MAPLE': "Érable - Clair moderne",
+                'CHERRY': "Cerisier - Rougeâtre chaleureux",
+                'ASH': "Frêne - Beige nervuré",
+            }
+            if props.parquet_wood_type in wood_info:
+                info_box = box.box()
+                info_box.scale_y = 0.7
+                info_box.label(text=wood_info[props.parquet_wood_type], icon='INFO')
+
+        elif floor_type in ['CERAMIC_TILE', 'PORCELAIN_TILE']:
+            # Options CARRELAGE
+            box = layout.box()
+            box.label(text="Options carrelage", icon='MESH_GRID')
+
+            col = box.column(align=True)
+            col.label(text="Couleur:", icon='COLOR')
+            col.prop(props, "tile_color_preset", text="")
+
+            box.separator()
+            col = box.column(align=True)
+            col.label(text="Taille carreaux:", icon='MESH_PLANE')
+            col.prop(props, "tile_size", text="")
+
+            # Info
             info_box = box.box()
-            info_box.scale_y = 0.8
-            info_box.label(text=floor_descriptions[props.flooring_type], icon='INFO')
+            info_box.scale_y = 0.7
+            if props.tile_size <= 0.20:
+                info_box.label(text="Petits carreaux (mosaïque)", icon='INFO')
+            elif props.tile_size <= 0.40:
+                info_box.label(text="Carreaux standard", icon='INFO')
+            else:
+                info_box.label(text="Grands carreaux (moderne)", icon='INFO')
+
+        elif floor_type == 'MARBLE':
+            # Options MARBRE
+            box = layout.box()
+            box.label(text="Marbre", icon='MESH_ICOSPHERE')
+            info_box = box.box()
+            info_box.scale_y = 0.7
+            info_box.label(text="Élégant, haut de gamme", icon='INFO')
+            info_box.label(text="Options à venir", icon='INFO')
+
+        elif floor_type == 'NATURAL_STONE':
+            # Options PIERRE
+            box = layout.box()
+            box.label(text="Pierre naturelle", icon='MESH_CUBE')
+            info_box = box.box()
+            info_box.scale_y = 0.7
+            info_box.label(text="Travertin, ardoise, granit", icon='INFO')
+            info_box.label(text="Options à venir", icon='INFO')
+
+        elif floor_type == 'POLISHED_CONCRETE':
+            # Options BÉTON CIRÉ
+            box = layout.box()
+            box.label(text="Béton ciré", icon='MESH_PLANE')
+            info_box = box.box()
+            info_box.scale_y = 0.7
+            info_box.label(text="Moderne, contemporain", icon='INFO')
+            info_box.label(text="Options à venir", icon='INFO')
+
+        elif floor_type in ['VINYL', 'LINOLEUM']:
+            # Options VINYLE/LINO
+            box = layout.box()
+            box.label(text="Vinyle/Linoléum", icon='MATERIAL')
+            info_box = box.box()
+            info_box.scale_y = 0.7
+            info_box.label(text="Économique, étanche", icon='INFO')
+            info_box.label(text="Options à venir", icon='INFO')
+
+        elif floor_type == 'CARPET':
+            # Options MOQUETTE
+            box = layout.box()
+            box.label(text="Moquette", icon='BRUSHES_ALL')
+            info_box = box.box()
+            info_box.scale_y = 0.7
+            info_box.label(text="Confortable, absorbe le son", icon='INFO')
+            info_box.label(text="Options à venir", icon='INFO')
+
+        elif floor_type == 'CORK':
+            # Options LIÈGE
+            box = layout.box()
+            box.label(text="Liège", icon='MATERIAL')
+            info_box = box.box()
+            info_box.scale_y = 0.7
+            info_box.label(text="Naturel, isolant", icon='INFO')
+            info_box.label(text="Options à venir", icon='INFO')
 
         layout.separator()
 
@@ -478,20 +565,101 @@ class HOUSE_PT_interior_walls_panel(Panel):
         box.label(text="Finition murale", icon='MATERIAL')
         box.prop(props, "interior_wall_finish", text="")
 
-        # Descriptions des finitions
-        finish_descriptions = {
-            'PAINT': "Peinture murale classique",
-            'WALLPAPER': "Papier peint avec motifs",
-            'WOOD_PANELING': "Lambris bois naturel",
-            'EXPOSED_BRICK': "Briques apparentes",
-            'NATURAL_STONE': "Pierre naturelle",
-            'PLASTER': "Enduit décoratif",
-        }
+        layout.separator()
 
-        if props.interior_wall_finish in finish_descriptions:
+        # ============================================================
+        # OPTIONS SELON TYPE DE FINITION
+        # ============================================================
+
+        if props.interior_wall_finish == 'PAINT':
+            # Options PEINTURE
+            box = layout.box()
+            box.label(text="Peinture", icon='COLOR')
+
+            col = box.column(align=True)
+            col.label(text="Couleur:", icon='COLORSET_01_VEC')
+            col.prop(props, "paint_color_preset", text="")
+
+            # Si couleur custom, afficher le color picker
+            if props.paint_color_preset == 'CUSTOM':
+                box.separator()
+                col = box.column(align=True)
+                col.label(text="Couleur personnalisée:", icon='BRUSH_DATA')
+                col.prop(props, "paint_color_custom", text="")
+
+            box.separator()
+            col = box.column(align=True)
+            col.label(text="Type de finition:", icon='SHADING_RENDERED')
+            col.prop(props, "paint_type", text="")
+
+            # Info sur le type de peinture
+            paint_type_info = {
+                'MAT': "Cache les imperfections",
+                'SATINEE': "Lessivable, polyvalent",
+                'BRILLANTE': "Très lessivable, reflets",
+                'VELOURS': "Aspect doux, élégant",
+            }
+            if props.paint_type in paint_type_info:
+                info_box = box.box()
+                info_box.scale_y = 0.7
+                info_box.label(text=paint_type_info[props.paint_type], icon='INFO')
+
+        elif props.interior_wall_finish == 'WALLPAPER':
+            # Options PAPIER PEINT
+            box = layout.box()
+            box.label(text="Papier peint", icon='TEXTURE')
+
+            col = box.column(align=True)
+            col.label(text="Image du motif:", icon='IMAGE_DATA')
+            col.prop(props, "wallpaper_image_path", text="")
+
+            # Info résolution recommandée
             info_box = box.box()
-            info_box.scale_y = 0.8
-            info_box.label(text=finish_descriptions[props.interior_wall_finish], icon='INFO')
+            info_box.scale_y = 0.7
+            info_box.label(text="Format: PNG/JPG", icon='INFO')
+            info_box.label(text="Min: 1024×1024px", icon='INFO')
+            info_box.label(text="Recommandé: 2048×2048px", icon='INFO')
+
+            box.separator()
+            col = box.column(align=True)
+            col.label(text="Type de papier:", icon='MESH_GRID')
+            col.prop(props, "wallpaper_type", text="")
+
+        elif props.interior_wall_finish == 'WOOD_PANELING':
+            # Options LAMBRIS BOIS
+            box = layout.box()
+            box.label(text="Lambris bois", icon='MATERIAL')
+            info_box = box.box()
+            info_box.scale_y = 0.7
+            info_box.label(text="Types: Chêne, Pin, etc.", icon='INFO')
+            info_box.label(text="À venir dans prochaine version", icon='INFO')
+
+        elif props.interior_wall_finish == 'EXPOSED_BRICK':
+            # Options BRIQUE APPARENTE
+            box = layout.box()
+            box.label(text="Brique apparente", icon='MESH_CUBE')
+            info_box = box.box()
+            info_box.scale_y = 0.7
+            info_box.label(text="Style industriel/loft", icon='INFO')
+            info_box.label(text="À venir dans prochaine version", icon='INFO')
+
+        elif props.interior_wall_finish == 'NATURAL_STONE':
+            # Options PIERRE NATURELLE
+            box = layout.box()
+            box.label(text="Pierre naturelle", icon='MESH_ICOSPHERE')
+            info_box = box.box()
+            info_box.scale_y = 0.7
+            info_box.label(text="Ardoise, granit, etc.", icon='INFO')
+            info_box.label(text="À venir dans prochaine version", icon='INFO')
+
+        elif props.interior_wall_finish == 'PLASTER':
+            # Options ENDUIT
+            box = layout.box()
+            box.label(text="Enduit décoratif", icon='BRUSHES_ALL')
+            info_box = box.box()
+            info_box.scale_y = 0.7
+            info_box.label(text="Lisse, grain, etc.", icon='INFO')
+            info_box.label(text="À venir dans prochaine version", icon='INFO')
 
         layout.separator()
 

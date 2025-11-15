@@ -778,6 +778,46 @@ class HouseGeneratorProperties(PropertyGroup):
         update=regenerate_house
     )
 
+    # Options pour PARQUET
+    parquet_wood_type: EnumProperty(
+        name="Type de bois",
+        description="Essence de bois pour le parquet",
+        items=[
+            ('OAK', "Chêne", "Classique, durable", 0),
+            ('WALNUT', "Noyer", "Brun foncé, élégant", 1),
+            ('MAPLE', "Érable", "Clair, moderne", 2),
+            ('CHERRY', "Cerisier", "Rougeâtre, chaleureux", 3),
+            ('ASH', "Frêne", "Beige clair, nervuré", 4),
+        ],
+        default='OAK',
+        update=regenerate_house
+    )
+
+    # Options pour CARRELAGE
+    tile_color_preset: EnumProperty(
+        name="Couleur carrelage",
+        description="Couleur du carrelage",
+        items=[
+            ('WHITE', "Blanc", "Blanc brillant", 0),
+            ('BEIGE', "Beige", "Beige neutre", 1),
+            ('GREY', "Gris", "Gris moderne", 2),
+            ('BLACK', "Noir", "Noir élégant", 3),
+            ('TERRACOTTA', "Terre cuite", "Orange/brun", 4),
+        ],
+        default='BEIGE',
+        update=regenerate_house
+    )
+
+    tile_size: FloatProperty(
+        name="Taille carreaux",
+        description="Taille des carreaux de carrelage (en mètres)",
+        default=0.30,
+        min=0.10,
+        max=1.0,
+        unit='LENGTH',
+        update=regenerate_house
+    )
+
     # ============================================================
     # MURS INTÉRIEURS (SYSTÈME AVANCÉ)
     # ============================================================
@@ -801,6 +841,73 @@ class HouseGeneratorProperties(PropertyGroup):
             ('PLASTER', "Enduit", "Enduit décoratif (lisse, grain, etc.)", 'MATERIAL', 5),
         ],
         default='PAINT',
+        update=regenerate_house
+    )
+
+    # Propriétés PEINTURE
+    paint_color_preset: EnumProperty(
+        name="Couleur peinture",
+        description="Couleur de peinture prédéfinie (top 10 couleurs intérieures)",
+        items=[
+            ('WHITE', "Blanc pur", "Blanc classique, intemporel", 'COLORSET_01_VEC', 0),
+            ('BEIGE', "Beige", "Beige chaud, accueillant", 'COLORSET_02_VEC', 1),
+            ('GREY_LIGHT', "Gris clair", "Gris lumineux, moderne", 'COLORSET_03_VEC', 2),
+            ('GREY', "Gris moyen", "Gris neutre, élégant", 'COLORSET_04_VEC', 3),
+            ('TAUPE', "Taupe", "Gris-brun chaleureux", 'COLORSET_05_VEC', 4),
+            ('CREAM', "Crème", "Blanc cassé doux", 'COLORSET_06_VEC', 5),
+            ('BLUE_PALE', "Bleu pâle", "Bleu ciel apaisant", 'COLORSET_07_VEC', 6),
+            ('GREEN_SAGE', "Vert sauge", "Vert doux, naturel", 'COLORSET_08_VEC', 7),
+            ('PINK_POWDER', "Rose poudré", "Rose doux, féminin", 'COLORSET_09_VEC', 8),
+            ('YELLOW_SOFT', "Jaune doux", "Jaune lumineux, chaleureux", 'COLORSET_10_VEC', 9),
+            ('CUSTOM', "Personnalisée", "Choisir une couleur personnalisée", 'COLOR', 10),
+        ],
+        default='WHITE',
+        update=regenerate_house
+    )
+
+    paint_color_custom: FloatVectorProperty(
+        name="Couleur personnalisée",
+        description="Couleur de peinture personnalisée (si preset CUSTOM sélectionné)",
+        subtype='COLOR',
+        size=4,
+        min=0.0,
+        max=1.0,
+        default=(0.95, 0.95, 0.95, 1.0),
+        update=regenerate_house
+    )
+
+    paint_type: EnumProperty(
+        name="Type de peinture",
+        description="Finition de la peinture (mat, satinée, brillante, velours)",
+        items=[
+            ('MAT', "Mat", "Absorption lumière, cache imperfections", 0),
+            ('SATINEE', "Satinée", "Légère brillance, lessivable", 1),
+            ('BRILLANTE', "Brillante", "Brillance élevée, très lessivable", 2),
+            ('VELOURS', "Velours", "Aspect velouté, élégant", 3),
+        ],
+        default='SATINEE',
+        update=regenerate_house
+    )
+
+    # Propriétés PAPIER PEINT
+    wallpaper_image_path: StringProperty(
+        name="Image papier peint",
+        description="Chemin vers l'image PNG/JPG du motif (min 1024×1024px, recommandé 2048×2048px)",
+        default="",
+        subtype='FILE_PATH',
+        update=regenerate_house
+    )
+
+    wallpaper_type: EnumProperty(
+        name="Type papier peint",
+        description="Type de papier peint",
+        items=[
+            ('LISSE', "Lisse", "Papier peint lisse classique", 0),
+            ('TEXTURE', "Texturé", "Papier peint avec relief", 1),
+            ('VINYLE', "Vinyle", "Résistant (cuisine/salle de bain)", 2),
+            ('INTISSE', "Intissé", "Facile à poser et enlever", 3),
+        ],
+        default='LISSE',
         update=regenerate_house
     )
 
