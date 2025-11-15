@@ -792,13 +792,26 @@ class HOUSE_OT_generate_auto(Operator):
 
                 room_name = "RDC" if floor_num == 0 else f"Etage{floor_num}"
 
-                # ✅ Générer le sol avec le système avancé
+                # ✅ Préparer les options custom selon le type de sol
+                custom_options = {}
+
+                # Options pour PARQUET/BOIS
+                if props.flooring_type in ['HARDWOOD_SOLID', 'HARDWOOD_ENGINEERED', 'LAMINATE']:
+                    custom_options['wood_type'] = props.parquet_wood_type
+
+                # Options pour CARRELAGE
+                elif props.flooring_type in ['CERAMIC_TILE', 'PORCELAIN_TILE']:
+                    custom_options['tile_color'] = props.tile_color_preset
+                    custom_options['tile_size'] = props.tile_size
+
+                # ✅ Générer le sol avec le système avancé + options custom
                 floor_obj = flooring_gen.generate_floor(
                     floor_type=props.flooring_type,
                     width=inset_width,
                     length=inset_length,
                     room_name=room_name,
-                    height=z_pos
+                    height=z_pos,
+                    **custom_options  # Passer les options custom
                 )
 
                 if floor_obj:

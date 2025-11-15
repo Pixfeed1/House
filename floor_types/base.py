@@ -58,12 +58,13 @@ class FloorTypeBase:
     THICKNESS = DEFAULT_FLOOR_THICKNESS
     PATTERN = "seamless"  # seamless, straight, grid, random
 
-    def __init__(self, quality=QUALITY_HIGH):
+    def __init__(self, quality=QUALITY_HIGH, **kwargs):
         """
         Initialise le type de sol.
 
         Args:
             quality: Niveau de qualité (QUALITY_LOW à QUALITY_ULTRA)
+            **kwargs: Options custom (ignorées dans la classe de base, utilisées par les classes enfants)
         """
         # ✅ SÉCURITÉ: Validation du niveau de qualité
         if quality not in [QUALITY_LOW, QUALITY_MEDIUM, QUALITY_HIGH, QUALITY_ULTRA]:
@@ -71,7 +72,14 @@ class FloorTypeBase:
             quality = QUALITY_HIGH
 
         self.quality = quality
-        print(f"[FloorType] {self.FLOOR_NAME} initialisé (qualité: {quality})")
+
+        # Stocker les kwargs pour les classes enfants
+        self.custom_options = kwargs
+
+        if kwargs:
+            print(f"[FloorType] {self.FLOOR_NAME} initialisé (qualité: {quality}, options: {list(kwargs.keys())})")
+        else:
+            print(f"[FloorType] {self.FLOOR_NAME} initialisé (qualité: {quality})")
 
     def generate(self, width, length, room_name="Room", height=0.0):
         """

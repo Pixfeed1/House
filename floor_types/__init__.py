@@ -99,7 +99,7 @@ class FlooringGenerator:
         self.quality = quality
         print(f"[FlooringGenerator] Initialisé (architecture modulaire, qualité: {quality})")
 
-    def generate_floor(self, floor_type, width, length, room_name="Room", height=0.0):
+    def generate_floor(self, floor_type, width, length, room_name="Room", height=0.0, **custom_options):
         """
         Génère un sol du type spécifié.
 
@@ -109,6 +109,12 @@ class FlooringGenerator:
             length: Longueur de la pièce (m)
             room_name: Nom de la pièce (pour identification)
             height: Hauteur Z du sol (par défaut 0.0)
+            **custom_options: Options personnalisées (wood_type, tile_color, tile_size, etc.)
+
+        Custom options disponibles:
+            - wood_type: Essence de bois pour parquets ('OAK', 'WALNUT', 'MAPLE', 'CHERRY', 'ASH')
+            - tile_color: Couleur pour carrelage ('WHITE', 'BEIGE', 'GREY', 'BLACK', 'TERRACOTTA')
+            - tile_size: Taille des carreaux (float, en mètres)
 
         Returns:
             Object Blender du sol généré, ou None si erreur
@@ -123,9 +129,11 @@ class FlooringGenerator:
         FloorClass = FLOOR_TYPES[floor_type]
 
         print(f"[FlooringGenerator] Génération {FloorClass.FLOOR_NAME} pour '{room_name}'")
+        if custom_options:
+            print(f"[FlooringGenerator] Options custom: {custom_options}")
 
-        # Instancier et générer
-        floor_instance = FloorClass(quality=self.quality)
+        # Instancier avec options custom
+        floor_instance = FloorClass(quality=self.quality, **custom_options)
         floor_obj = floor_instance.generate(width, length, room_name, height)
 
         return floor_obj
