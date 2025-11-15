@@ -191,25 +191,93 @@ Ces bugs n'ont PAS été testés fonctionnellement mais sont suspectés:
 
 ## RÉSUMÉ
 
-| Bug | Sévérité | Testé | Impact |
-|-----|----------|-------|--------|
-| #1 - Briques disparaissent | 🔴 CRITIQUE | ✅ Confirmé par utilisateur | **Casse système briques 3D** |
-| #2 - Nettoyage collection | 🟠 MOYEN | ⚠️ Suspect | Fuite mémoire possible |
-| #3 - Pattern Voronoi | 🟡 MINEUR | ✅ Confirmé (TODO dans code) | Fallback OK |
+| Bug | Sévérité | Testé | Impact | Statut |
+|-----|----------|-------|--------|--------|
+| #1 - Briques disparaissent | 🔴 CRITIQUE | ✅ Confirmé par utilisateur | **Casse système briques 3D** | ✅ **FIXÉ** |
+| #2 - Nettoyage collection | 🟠 MOYEN | ⚠️ Suspect | Fuite mémoire possible | ✅ **FIXÉ** |
+| #3 - Pattern Voronoi | 🟡 MINEUR | ✅ Confirmé (TODO dans code) | Fallback OK | ⚠️ Ouvert |
+
+---
+
+## 🛠️ CORRECTIONS APPLIQUÉES
+
+### ✅ BUG #1 FIXÉ - is_brick_in_opening()
+**Fichier**: `materials/brick_geometry.py:1053-1141`
+
+**Changements**:
+1. ✅ Ajout vérification dimension Y (était manquante)
+2. ✅ Ajout `brick_center_y` et `opening_y_min/max`
+3. ✅ Validation robuste avec 5 niveaux de sécurité:
+   - Sécurité 1: Validation entrées (dimensions > 0)
+   - Sécurité 2: Calcul centre avec try/except
+   - Sécurité 3: Validation chaque ouverture (isinstance dict)
+   - Sécurité 4: Validation dimensions ouverture
+   - Sécurité 5: Debug logging (commenté, activable)
+4. ✅ Fallback `opening_depth` si non défini
+5. ✅ Vérification 3D complète: `x_inside AND y_inside AND z_inside`
+
+**Avant** (bug):
+```python
+# Vérifiait seulement X et Z
+if (opening_x_min < brick_center_x < opening_x_max and
+    opening_z_min < brick_center_z < opening_z_max):
+    return True  # ❌ Ignore Y!
+```
+
+**Après** (fixé):
+```python
+# Vérifie X, Y ET Z
+x_inside = opening_x_min < brick_center_x < opening_x_max
+y_inside = opening_y_min < brick_center_y < opening_y_max  # ✅ AJOUTÉ
+z_inside = opening_z_min < brick_center_z < opening_z_max
+
+if x_inside and y_inside and z_inside:
+    return True  # ✅ Collision 3D complète
+```
+
+### ✅ BUG #1 FIXÉ - is_mortar_in_opening()
+**Fichier**: `materials/brick_geometry.py:1146-1217`
+
+**Changements**: Identiques à `is_brick_in_opening()` (même logique appliquée)
+
+### ✅ BUG #2 FIXÉ - Nettoyage collection
+**Fichier**: `operators_auto.py:348-356`
+
+**Changements**:
+1. ✅ Remplacé `obj.name in coll.objects` par `obj in coll.objects`
+2. ✅ Ajout try/except pour gérer objets invalides
+3. ✅ Logging erreurs pour debugging
+
+**Avant**:
+```python
+if obj.name in coll.objects:  # ⚠️ Ambiguïté
+    coll.objects.unlink(obj)
+```
+
+**Après**:
+```python
+if obj in coll.objects:  # ✅ Plus robuste
+    try:
+        coll.objects.unlink(obj)
+    except (RuntimeError, ReferenceError) as e:
+        print(f"[House] ⚠️ Impossible de unlink {obj.name}: {e}")
+```
+
+---
 
 ### Priorités de Correction
 
 **URGENT (immédiat)**:
-1. ✅ **BUG #1**: Fixer `is_brick_in_opening()` - ajouter vérification Y
-
-**IMPORTANT (cette semaine)**:
-2. **BUG #2**: Vérifier et fixer nettoyage collection
+1. ✅ **BUG #1**: FIXÉ - `is_brick_in_opening()` + `is_mortar_in_opening()`
+2. ✅ **BUG #2**: FIXÉ - Nettoyage collection robuste
 
 **OPTIONNEL (plus tard)**:
-3. BUG #3: Implémenter pattern Voronoi
+3. ⚠️ **BUG #3**: Implémenter pattern Voronoi (TODO ouvert)
 
 ---
 
 **Rapport créé le**: 2025-11-15
+**Mis à jour le**: 2025-11-15
 **Par**: Claude AI
 **Type**: Analyse bugs fonctionnels réels (pas théoriques)
+**Statut**: 2/3 bugs fixés (66% résolu)
