@@ -79,7 +79,7 @@ class HOUSE_OT_add_wall(Operator):
         # Ajouter à la collection House si elle existe
         if "House" in bpy.data.collections:
             collection = bpy.data.collections["House"]
-            if wall.name not in collection.objects:
+            if wall not in collection.objects:  # ✅ FIX: obj au lieu de obj.name
                 collection.objects.link(wall)
                 context.scene.collection.objects.unlink(wall)
         
@@ -174,7 +174,7 @@ class HOUSE_OT_add_door(Operator):
         # Ajouter à la collection House
         if "House" in bpy.data.collections:
             collection = bpy.data.collections["House"]
-            if door.name not in collection.objects:
+            if door not in collection.objects:  # ✅ FIX: obj au lieu de obj.name
                 collection.objects.link(door)
                 context.scene.collection.objects.unlink(door)
         
@@ -229,7 +229,7 @@ class HOUSE_OT_add_window(Operator):
         # Ajouter à la collection House
         if "House" in bpy.data.collections:
             collection = bpy.data.collections["House"]
-            if window.name not in collection.objects:
+            if window not in collection.objects:  # ✅ FIX: obj au lieu de obj.name
                 collection.objects.link(window)
                 context.scene.collection.objects.unlink(window)
         
@@ -284,7 +284,7 @@ class HOUSE_OT_import_plan(Operator):
             # Ajouter à la collection House
             if "House" in bpy.data.collections:
                 collection = bpy.data.collections["House"]
-                if empty.name not in collection.objects:
+                if empty not in collection.objects:  # ✅ FIX: obj au lieu de obj.name
                     collection.objects.link(empty)
                     context.scene.collection.objects.unlink(empty)
             
@@ -405,7 +405,7 @@ class HOUSE_OT_finalize_manual(Operator):
         bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
         
         # Ajouter à la collection
-        if floor.name not in collection.objects:
+        if floor not in collection.objects:  # ✅ FIX: obj au lieu de obj.name
             collection.objects.link(floor)
             context.scene.collection.objects.unlink(floor)
     
@@ -440,7 +440,7 @@ class HOUSE_OT_finalize_manual(Operator):
         bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
         
         # Ajouter à la collection
-        if roof.name not in collection.objects:
+        if roof not in collection.objects:  # ✅ FIX: obj au lieu de obj.name
             collection.objects.link(roof)
             context.scene.collection.objects.unlink(roof)
     

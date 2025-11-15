@@ -66,7 +66,7 @@ def create_box(name, location, dimensions, collection=None):
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     
     # Déplacer vers la collection si spécifiée
-    if collection and obj.name not in collection.objects:
+    if collection and obj not in collection.objects:  # ✅ FIX: obj au lieu de obj.name
         collection.objects.link(obj)
         bpy.context.scene.collection.objects.unlink(obj)
     
