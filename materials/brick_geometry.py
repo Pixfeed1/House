@@ -1045,70 +1045,163 @@ def create_single_brick_mesh(quality='MEDIUM'):
 
 
 def is_brick_in_opening(brick_x, brick_y, brick_z, brick_width, brick_height, openings):
-    """Vérifie si une brique est MAJORITAIREMENT dans une zone d'ouverture
-    
-    ✅ CORRECTION: Vérifie si le CENTRE de la brique est dans l'ouverture,
-    au lieu de supprimer toutes les briques qui touchent l'ouverture.
-    Cela évite les trous dans les murs autour des fenêtres/portes.
+    """Vérifie si une brique est dans une zone d'ouverture (fenêtre/porte)
+
+    ✅ FIX CRITIQUE: Vérifie maintenant les 3 dimensions (X, Y, Z) au lieu de seulement X et Z.
+    Le bug précédent causait les briques à traverser les fenêtres.
+
+    Args:
+        brick_x (float): Position X de la brique
+        brick_y (float): Position Y de la brique (profondeur)
+        brick_z (float): Position Z de la brique (hauteur)
+        brick_width (float): Largeur de la brique
+        brick_height (float): Hauteur de la brique
+        openings (list): Liste des ouvertures (fenêtres/portes) avec 'x', 'y', 'z', 'width', 'height', 'depth'
+
+    Returns:
+        bool: True si le centre de la brique est dans une ouverture
     """
+    # ✅ SÉCURITÉ 1: Validation des entrées
     if not openings:
         return False
-    
-    # Centre de la brique
-    brick_center_x = brick_x + brick_width / 2
-    brick_center_z = brick_z + brick_height / 2
-    
+
+    if brick_width <= 0 or brick_height <= 0:
+        print(f"[BrickGeometry] ⚠️ is_brick_in_opening: dimensions invalides (w={brick_width}, h={brick_height})")
+        return False
+
+    # ✅ SÉCURITÉ 2: Calculer le centre de la brique avec validation
+    try:
+        brick_center_x = brick_x + brick_width / 2
+        brick_center_y = brick_y + brick_height / 2  # ✅ FIX: AJOUTÉ (était manquant!)
+        brick_center_z = brick_z + brick_height / 2
+    except (TypeError, ValueError) as e:
+        print(f"[BrickGeometry] ❌ Erreur calcul centre brique: {e}")
+        return False
+
     # Marge de sécurité pour éviter les briques qui débordent légèrement
     SAFETY_MARGIN = 0.02  # 2cm
-    
-    for opening in openings:
+
+    # ✅ SÉCURITÉ 3: Validation de chaque ouverture
+    for idx, opening in enumerate(openings):
+        # Valider que c'est un dict
+        if not isinstance(opening, dict):
+            print(f"[BrickGeometry] ⚠️ Ouverture #{idx} n'est pas un dict: {type(opening)}")
+            continue
+
+        # Extraire coordonnées avec defaults
         opening_x = opening.get('x', 0)
         opening_y = opening.get('y', 0)
         opening_z = opening.get('z', 0)
         opening_width = opening.get('width', 0)
         opening_height = opening.get('height', 0)
-        
-        # Étendre légèrement la zone d'ouverture avec la marge
+        opening_depth = opening.get('depth', 0)  # ✅ FIX: AJOUTÉ (profondeur ouverture)
+
+        # ✅ SÉCURITÉ 4: Valider dimensions ouverture
+        if opening_width <= 0 or opening_height <= 0:
+            # Ouverture invalide, ignorer
+            continue
+
+        # Si depth=0 (pas défini), utiliser une valeur par défaut
+        if opening_depth <= 0:
+            opening_depth = BRICK_DEPTH  # Fallback: épaisseur brique standard
+
+        # ✅ FIX CRITIQUE: Calculer les bornes en 3D (X, Y, Z)
+        # Étendre légèrement avec la marge de sécurité
         opening_x_min = opening_x - SAFETY_MARGIN
         opening_x_max = opening_x + opening_width + SAFETY_MARGIN
+
+        opening_y_min = opening_y - SAFETY_MARGIN  # ✅ FIX: AJOUTÉ
+        opening_y_max = opening_y + opening_depth + SAFETY_MARGIN  # ✅ FIX: AJOUTÉ
+
         opening_z_min = opening_z - SAFETY_MARGIN
         opening_z_max = opening_z + opening_height + SAFETY_MARGIN
-        
-        # Vérifier si le CENTRE de la brique est dans l'ouverture étendue
-        if (opening_x_min < brick_center_x < opening_x_max and
-            opening_z_min < brick_center_z < opening_z_max):
-            return True
-    
-    return False
+
+        # ✅ FIX CRITIQUE: Vérifier les 3 dimensions (X, Y, Z)
+        # Le bug était ici: vérifiait seulement X et Z, ignorant Y!
+        x_inside = opening_x_min < brick_center_x < opening_x_max
+        y_inside = opening_y_min < brick_center_y < opening_y_max  # ✅ FIX: AJOUTÉ
+        z_inside = opening_z_min < brick_center_z < opening_z_max
+
+        # Vérifier si le centre est dans l'ouverture en 3D
+        if x_inside and y_inside and z_inside:
+            return True  # Brique dans une ouverture, doit être supprimée
+
+    return False  # Aucune collision détectée, garder la brique
 
 
 
 
 def is_mortar_in_opening(mortar_x, mortar_y, mortar_z, mortar_width, mortar_height, openings):
-    """Vérifie si un joint de mortier est dans une ouverture (FONCTION AJOUTÉE)"""
+    """Vérifie si un joint de mortier est dans une ouverture
+
+    ✅ FIX CRITIQUE: Vérifie maintenant les 3 dimensions (X, Y, Z) - même fix que is_brick_in_opening()
+
+    Args:
+        mortar_x (float): Position X du mortier
+        mortar_y (float): Position Y du mortier
+        mortar_z (float): Position Z du mortier (hauteur)
+        mortar_width (float): Largeur du mortier
+        mortar_height (float): Hauteur du mortier
+        openings (list): Liste des ouvertures
+
+    Returns:
+        bool: True si le centre du mortier est dans une ouverture
+    """
+    # ✅ SÉCURITÉ 1: Validation entrée
     if not openings:
         return False
-    
-    mortar_center_x = mortar_x + mortar_width / 2
-    mortar_center_z = mortar_z + mortar_height / 2
-    
+
+    if mortar_width <= 0 or mortar_height <= 0:
+        return False
+
+    # ✅ SÉCURITÉ 2: Calculer centre avec validation
+    try:
+        mortar_center_x = mortar_x + mortar_width / 2
+        mortar_center_y = mortar_y + mortar_height / 2  # ✅ FIX: AJOUTÉ
+        mortar_center_z = mortar_z + mortar_height / 2
+    except (TypeError, ValueError):
+        return False
+
     SAFETY_MARGIN = 0.05
-    
+
+    # ✅ SÉCURITÉ 3: Validation chaque ouverture
     for opening in openings:
+        if not isinstance(opening, dict):
+            continue
+
         opening_x = opening.get("x", 0)
+        opening_y = opening.get("y", 0)  # ✅ FIX: AJOUTÉ
         opening_z = opening.get("z", 0)
         opening_width = opening.get("width", 0)
         opening_height = opening.get("height", 0)
-        
+        opening_depth = opening.get("depth", 0)  # ✅ FIX: AJOUTÉ
+
+        # ✅ SÉCURITÉ 4: Valider dimensions
+        if opening_width <= 0 or opening_height <= 0:
+            continue
+
+        # Fallback depth si non défini
+        if opening_depth <= 0:
+            opening_depth = BRICK_DEPTH
+
+        # ✅ FIX CRITIQUE: Bornes 3D (X, Y, Z)
         opening_x_min = opening_x - SAFETY_MARGIN
         opening_x_max = opening_x + opening_width + SAFETY_MARGIN
+
+        opening_y_min = opening_y - SAFETY_MARGIN  # ✅ FIX: AJOUTÉ
+        opening_y_max = opening_y + opening_depth + SAFETY_MARGIN  # ✅ FIX: AJOUTÉ
+
         opening_z_min = opening_z - SAFETY_MARGIN
         opening_z_max = opening_z + opening_height + SAFETY_MARGIN
-        
-        if (opening_x_min < mortar_center_x < opening_x_max and
-            opening_z_min < mortar_center_z < opening_z_max):
+
+        # ✅ FIX CRITIQUE: Vérifier 3 dimensions (X, Y, Z)
+        x_inside = opening_x_min < mortar_center_x < opening_x_max
+        y_inside = opening_y_min < mortar_center_y < opening_y_max  # ✅ FIX: AJOUTÉ
+        z_inside = opening_z_min < mortar_center_z < opening_z_max
+
+        if x_inside and y_inside and z_inside:
             return True
-    
+
     return False
 
 def calculate_brick_positions_for_wall(wall_length, wall_height, start_pos, direction, openings=None):

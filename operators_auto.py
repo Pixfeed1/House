@@ -971,53 +971,73 @@ class HOUSE_OT_generate_auto(Operator):
         window_bm.free()
     
     def _generate_windows_complete(self, context, props, collection, style_config):
-        """Génère les fenêtres 3D complètes"""
+        """Génère les fenêtres 3D complètes
+
+        ✅ FIX Z-ORDERING: Les fenêtres sont placées DEVANT les briques 3D (offset -0.005m)
+        pour éviter qu'elles soient cachées par le Z-buffer.
+
+        Briques 3D positionnement:
+        - Mur AVANT: y ∈ [0, 0.10m]
+        - Mur ARRIÈRE: y ∈ [length-0.10m, length]
+        - Mur GAUCHE: x ∈ [0, 0.10m]
+        - Mur DROIT: x ∈ [width-0.10m, width]
+
+        Fenêtres positionnement:
+        - Mur AVANT: y = -0.005m (devant)
+        - Mur ARRIÈRE: y = length + 0.005m (devant)
+        - Mur GAUCHE: x = -0.005m (devant)
+        - Mur DROIT: x = width + 0.005m (devant)
+        """
         width = props.house_width
         length = props.house_length
-        
+
         num_windows_front = max(2, int(width / WINDOW_SPACING_INTERVAL))
         num_windows_side = max(2, int(length / WINDOW_SPACING_INTERVAL))
-        
+
         window_height_ratio = style_config.get('window_height_ratio', props.window_height_ratio)
         window_height = props.floor_height * window_height_ratio
         window_width = WINDOW_WIDTH
-        
+
         window_gen = WindowGenerator(quality=props.window_quality)
-        
+
+        # ✅ FIX: Offset pour placer fenêtres DEVANT les briques (évite Z-fighting)
+        # 5mm devant le mur pour garantir rendu correct avec briques 3D
+        WINDOW_DEPTH_OFFSET = -0.005  # Négatif = vers l'extérieur
+
         for floor in range(props.num_floors):
             floor_z = floor * props.floor_height
             window_z = floor_z + props.floor_height * WINDOW_HEIGHT_DEFAULT
-            
-            # Mur avant
+
+            # ✅ Mur AVANT - Fenêtres à y = -0.005m (devant briques qui sont à y=0)
             spacing_front = width / (num_windows_front + 1)
             for i in range(num_windows_front):
                 x_pos = spacing_front * (i + 1)
-                
+
                 if floor == 0 and abs(x_pos - width/2) < props.front_door_width * 1.5:
                     continue
-                
+
                 window_gen.generate_window(
                     window_type=props.window_type,
                     width=window_width,
                     height=window_height,
-                    location=Vector((x_pos, WALL_THICKNESS/2, window_z)),
+                    location=Vector((x_pos, WINDOW_DEPTH_OFFSET, window_z)),
                     orientation='front',
                     collection=collection
                 )
-            
-            # Mur arrière
+
+            # ✅ Mur ARRIÈRE - Fenêtres à y = length + 0.005m (devant briques qui sont à y=length)
             for i in range(num_windows_front):
                 x_pos = spacing_front * (i + 1)
                 window_gen.generate_window(
                     window_type=props.window_type,
                     width=window_width,
                     height=window_height,
-                    location=Vector((x_pos, length - WALL_THICKNESS/2, window_z)),
+                    location=Vector((x_pos, length - WINDOW_DEPTH_OFFSET, window_z)),
                     orientation='back',
                     collection=collection
                 )
-            
-            # Mur gauche
+
+            # ✅ Mur GAUCHE - Fenêtres à x = -0.005m (devant briques qui sont à x=0)
             spacing_side = length / (num_windows_side + 1)
             for i in range(num_windows_side):
                 y_pos = spacing_side * (i + 1)
@@ -1025,19 +1045,19 @@ class HOUSE_OT_generate_auto(Operator):
                     window_type=props.window_type,
                     width=window_width,
                     height=window_height,
-                    location=Vector((WALL_THICKNESS/2, y_pos, window_z)),
+                    location=Vector((WINDOW_DEPTH_OFFSET, y_pos, window_z)),
                     orientation='left',
                     collection=collection
                 )
-            
-            # Mur droit
+
+            # ✅ Mur DROIT - Fenêtres à x = width + 0.005m (devant briques qui sont à x=width)
             for i in range(num_windows_side):
                 y_pos = spacing_side * (i + 1)
                 window_gen.generate_window(
                     window_type=props.window_type,
                     width=window_width,
                     height=window_height,
-                    location=Vector((width - WALL_THICKNESS/2, y_pos, window_z)),
+                    location=Vector((width - WINDOW_DEPTH_OFFSET, y_pos, window_z)),
                     orientation='right',
                     collection=collection
                 )
