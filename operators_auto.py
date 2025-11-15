@@ -16,7 +16,20 @@ import random
 # Import du module de fenêtres
 from .windows import WindowGenerator
 
+# Import du système de sols avancé
+from .flooring import FlooringGenerator, QUALITY_LOW, QUALITY_MEDIUM, QUALITY_HIGH, QUALITY_ULTRA
+
+# ============================================================
+# MODE DEBUG (activer pour logs détaillés)
+# ============================================================
+# NOTE BUG #10: DEBUG_MODE est actuellement hardcodé
+# TODO: Considérer de le déplacer vers les préférences (properties.py) pour permettre
+# un toggle via l'interface Blender sans éditer le code source
+DEBUG_MODE = False  # Mettre à True pour debug détaillé
+
+# ============================================================
 # Constantes - Dimensions et épaisseurs
+# ============================================================
 WALL_THICKNESS = 0.25
 FLOOR_THICKNESS = 0.2
 FOUNDATION_THICKNESS = 0.3
@@ -79,11 +92,24 @@ class HOUSE_OT_generate_auto(Operator):
     def execute(self, context):
         props = context.scene.house_generator
 
+        # ✅ VALIDATION : Vérifier les paramètres
+        validation_error = self._validate_parameters(props)
+        if validation_error:
+            self.report({'ERROR'}, validation_error)
+            return {'CANCELLED'}
+
         # Initialiser real_wall_height pour éviter AttributeError
         self.real_wall_height = None
 
         print("[House] Début de la génération...")
         self.report({'INFO'}, "Génération de la maison en cours...")
+
+        # Mode debug
+        if DEBUG_MODE:
+            print(f"[DEBUG] Dimensions: {props.house_width}m × {props.house_length}m")
+            print(f"[DEBUG] Étages: {props.num_floors}, Hauteur étage: {props.floor_height}m")
+            print(f"[DEBUG] Toit: {props.roof_type}, Pente: {props.roof_pitch}°")
+            print(f"[DEBUG] Murs: {props.wall_construction_type}, Qualité briques: {props.brick_3d_quality if props.wall_construction_type == 'BRICK_3D' else 'N/A'}")
 
         if props.random_seed > 0:
             random.seed(props.random_seed)
@@ -187,7 +213,52 @@ class HOUSE_OT_generate_auto(Operator):
         wm.progress_end()
         self.report({'INFO'}, "Maison générée avec succès!")
         return {'FINISHED'}
-    
+
+    def _validate_parameters(self, props):
+        """Valide les paramètres de génération
+
+        Returns:
+            str: Message d'erreur si invalide, None si valide
+        """
+        # Dimensions minimales/maximales
+        if props.house_width < 3.0:
+            return "Largeur minimale : 3m"
+        if props.house_width > 50.0:
+            return "Largeur maximale : 50m"
+        if props.house_length < 3.0:
+            return "Longueur minimale : 3m"
+        if props.house_length > 50.0:
+            return "Longueur maximale : 50m"
+
+        # Hauteur d'étage réaliste
+        if props.floor_height < 2.2:
+            return "Hauteur d'étage minimale : 2.2m"
+        if props.floor_height > 5.0:
+            return "Hauteur d'étage maximale : 5m"
+
+        # Pente de toit
+        if props.roof_pitch < 5.0:
+            return "Pente de toit minimale : 5°"
+        if props.roof_pitch > 75.0:
+            return "Pente de toit maximale : 75°"
+
+        # Warning pour GAMBREL avec pente faible
+        if props.roof_type == 'GAMBREL' and props.roof_pitch < 20.0:
+            # Pas d'erreur, juste un warning (sera affiché dans execute)
+            print(f"[House] ⚠️ Toit mansarde : pente faible ({props.roof_pitch}°), résultat peu esthétique (recommandé: 20-45°)")
+
+        # Débord de toit réaliste
+        if props.roof_overhang < 0.0:
+            return "Débord de toit minimal : 0m"
+        if props.roof_overhang > 2.0:
+            return "Débord de toit maximal : 2m"
+
+        # Matériau custom pour briques
+        if props.wall_construction_type == 'BRICK_3D' and props.brick_material_mode == 'CUSTOM' and not props.brick_custom_material:
+            return "Mode matériau custom sélectionné mais aucun matériau défini"
+
+        return None  # Tout est valide
+
     def _apply_architectural_style(self, props):
         """Applique les variations selon le style architectural"""
         style = props.architectural_style
@@ -274,8 +345,14 @@ class HOUSE_OT_generate_auto(Operator):
             for obj in list(collection.objects):
                 # Unlink from all collections before removing (Blender 4.2 compatibility)
                 for coll in bpy.data.collections:
-                    if obj.name in coll.objects:
-                        coll.objects.unlink(obj)
+                    # ✅ FIX BUG #2: Utiliser `obj in coll.objects` au lieu de `obj.name in coll.objects`
+                    # bpy_prop_collection supporte les deux mais `in` avec objet est plus robuste
+                    if obj in coll.objects:
+                        try:
+                            coll.objects.unlink(obj)
+                        except (RuntimeError, ReferenceError) as e:
+                            # Objet déjà unlinked ou invalide, continuer
+                            print(f"[House] ⚠️ Impossible de unlink {obj.name}: {e}")
                 bpy.data.objects.remove(obj, do_unlink=True)
         else:
             collection = bpy.data.collections.new(collection_name)
@@ -340,9 +417,77 @@ class HOUSE_OT_generate_auto(Operator):
         
         return foundation
     
+    def _calculate_safe_window_count(self, wall_length, dimension_name="largeur"):
+        """✅ FIX BUG #4: Calcule le nombre de fenêtres sans chevauchement
+
+        Sécurité niveau 1: Validation des paramètres d'entrée
+        Sécurité niveau 2: Calcul mathématique avec espacement minimum
+        Sécurité niveau 3: Vérification du résultat (pas de division par zéro)
+        Sécurité niveau 4: Warnings si maison trop petite
+        Sécurité niveau 5: Logging pour debug
+
+        Args:
+            wall_length: Longueur du mur en mètres
+            dimension_name: Nom pour les messages (debug)
+
+        Returns:
+            int: Nombre de fenêtres sécuritaire (1 minimum, jamais de chevauchement)
+        """
+        # === SÉCURITÉ NIVEAU 1: Validation entrées ===
+        if wall_length <= 0:
+            print(f"[House] ⚠️ Longueur mur invalide: {wall_length}m, utilisation 1 fenêtre par défaut")
+            return 1
+
+        # === SÉCURITÉ NIVEAU 2: Calcul avec espacement minimum ===
+        window_width = WINDOW_WIDTH  # 1.2m
+        min_spacing = 0.5  # Espacement minimum entre fenêtres (sécurité architecturale)
+        min_edge_spacing = 0.3  # Espacement minimum depuis les bords
+
+        # Formule: wall_length >= edge_spacing + n*window_width + (n-1)*spacing + edge_spacing
+        # Simplification: wall_length >= 2*edge + n*window_width + (n-1)*spacing
+        # wall_length - 2*edge >= n*window_width + n*spacing - spacing
+        # wall_length - 2*edge + spacing >= n*(window_width + spacing)
+        # n <= (wall_length - 2*edge + spacing) / (window_width + spacing)
+
+        try:
+            available_space = wall_length - 2 * min_edge_spacing + min_spacing
+            max_windows = int(available_space / (window_width + min_spacing))
+        except (ZeroDivisionError, ValueError) as e:
+            print(f"[House] ⚠️ Erreur calcul fenêtres: {e}, utilisation 1 fenêtre")
+            return 1
+
+        # === SÉCURITÉ NIVEAU 3: Validation résultat ===
+        # Minimum absolu: 1 fenêtre
+        # Maximum raisonnable: basé sur l'ancien système (éviter régression)
+        old_system_max = max(2, int(wall_length / WINDOW_SPACING_INTERVAL))
+        safe_count = max(1, min(max_windows, old_system_max))
+
+        # === SÉCURITÉ NIVEAU 4: Warnings si maison trop petite ===
+        if safe_count < 2 and wall_length >= 3.0:
+            print(f"[House] ⚠️ Mur {dimension_name} ({wall_length:.1f}m) trop petit pour 2 fenêtres")
+            print(f"[House]    → 1 fenêtre générée pour éviter chevauchement")
+            print(f"[House]    → Recommandé: {dimension_name} ≥ {2*min_edge_spacing + 2*window_width + min_spacing:.1f}m pour 2 fenêtres")
+
+        # Vérification espacement réel (double sécurité)
+        actual_spacing = wall_length / (safe_count + 1)
+        min_required_space_per_window = window_width + min_spacing
+
+        if actual_spacing < min_required_space_per_window and safe_count > 1:
+            # Réduction forcée si l'espacement calculé est encore trop petit
+            safe_count = max(1, safe_count - 1)
+            print(f"[House] ⚠️ Réduction fenêtres à {safe_count} pour garantir espacement minimum")
+
+        # === SÉCURITÉ NIVEAU 5: Logging (mode production) ===
+        if DEBUG_MODE:
+            print(f"[House] Fenêtres {dimension_name}: {safe_count} pour {wall_length:.1f}m")
+            print(f"[House]    - Espacement: {actual_spacing:.2f}m")
+            print(f"[House]    - Ancien système: {old_system_max}, Nouveau: {safe_count}")
+
+        return safe_count
+
     def _generate_walls(self, context, props, collection):
         """Génère les murs extérieurs (SIMPLE ou BRIQUES 3D) - ULTIMATE"""
-        
+
         # === SI BRIQUES 3D : NOUVEAU SYSTÈME COMPLET ===
         if props.wall_construction_type == 'BRICK_3D':
             print(f"[House] Génération murs en briques 3D (qualité: {props.brick_3d_quality})")
@@ -409,6 +554,21 @@ class HOUSE_OT_generate_auto(Operator):
         wall_thickness = WALL_THICKNESS
         total_height = props.num_floors * props.floor_height
 
+        # ✅ FIX CRITIQUE SHED: Adapter hauteur murs selon type toit
+        roof_type = props.roof_type
+        roof_pitch = props.roof_pitch
+
+        # Calculer hauteur additionnelle pour toit SHED
+        shed_extra_height = 0
+        if roof_type == 'SHED':
+            pitch_rad = math.radians(roof_pitch)
+            shed_extra_height = length * math.tan(pitch_rad)
+            # Limiter à 1.5× hauteur murs
+            max_extra = total_height * 0.5
+            if shed_extra_height > max_extra:
+                shed_extra_height = max_extra
+            print(f"[House] Toit SHED: mur arrière surélevé de {shed_extra_height:.2f}m")
+
         # Aligner murs avec le dessus de la fondation
         base_z = 0
 
@@ -433,10 +593,19 @@ class HOUSE_OT_generate_auto(Operator):
                 bm.verts.new((width - wall_thickness, length - wall_thickness, base_z)),
                 bm.verts.new((wall_thickness, length - wall_thickness, base_z))
             ]
-            
-            # Vertices du haut
-            outer_top = [bm.verts.new(v.co + Vector((0, 0, h))) for v in outer]
-            inner_top = [bm.verts.new(v.co + Vector((0, 0, h))) for v in inner]
+
+            # ✅ FIX CRITIQUE SHED: Vertices du haut avec hauteurs adaptées
+            # Pour SHED: murs arrière (indices 2, 3) plus hauts
+            outer_top = []
+            inner_top = []
+            for i, v in enumerate(outer):
+                # Indices 2 et 3 = mur arrière (côté Y+)
+                extra_h = shed_extra_height if (i >= 2 and roof_type == 'SHED') else 0
+                outer_top.append(bm.verts.new(v.co + Vector((0, 0, h + extra_h))))
+
+            for i, v in enumerate(inner):
+                extra_h = shed_extra_height if (i >= 2 and roof_type == 'SHED') else 0
+                inner_top.append(bm.verts.new(v.co + Vector((0, 0, h + extra_h))))
             
             # Faces verticales extérieures
             for i in range(4):
@@ -474,16 +643,16 @@ class HOUSE_OT_generate_auto(Operator):
         """Calcule les positions des ouvertures pour les murs en briques"""
         width = props.house_width
         length = props.house_length
-        
+
         openings = []
-        
+
         # Récupérer window_height_ratio
         style_config = self._apply_architectural_style(props)
         window_height_ratio = style_config.get('window_height_ratio', props.window_height_ratio)
-        
-        # Calculer nombre de fenêtres
-        num_windows_front = max(2, int(width / WINDOW_SPACING_INTERVAL))
-        num_windows_side = max(2, int(length / WINDOW_SPACING_INTERVAL))
+
+        # ✅ FIX BUG #4: Calculer nombre de fenêtres avec validation anti-chevauchement
+        num_windows_front = self._calculate_safe_window_count(width, "largeur")
+        num_windows_side = self._calculate_safe_window_count(length, "longueur")
         
         # PORTE
         door_width = props.front_door_width
@@ -581,31 +750,77 @@ class HOUSE_OT_generate_auto(Operator):
         return openings
     
     def _generate_floors(self, context, props, collection):
-        """Génère les planchers"""
+        """Génère les planchers (simple ou système avancé)"""
         width = props.house_width
         length = props.house_length
         floor_thickness = FLOOR_THICKNESS
-        
+
         floors = []
-        
+
+        # ✅ SYSTÈME AVANCÉ: Utiliser flooring.py si activé
+        if hasattr(props, 'use_flooring_system') and props.use_flooring_system:
+            print("[House] Utilisation du système de sols avancé")
+
+            # Mapper qualité property vers constantes flooring
+            quality_map = {
+                'LOW': QUALITY_LOW,
+                'MEDIUM': QUALITY_MEDIUM,
+                'HIGH': QUALITY_HIGH,
+                'ULTRA': QUALITY_ULTRA
+            }
+            quality = quality_map.get(props.flooring_quality, QUALITY_HIGH)
+
+            # Créer le générateur
+            flooring_gen = FlooringGenerator(quality=quality)
+
+            # Générer les sols pour chaque étage
+            for floor_num in range(props.num_floors):
+                if floor_num == 0:
+                    z_pos = 0  # Sol rez-de-chaussée au niveau 0
+                else:
+                    z_pos = floor_num * props.floor_height
+
+                inset_width = width * FLOOR_INSET
+                inset_length = length * FLOOR_INSET
+
+                room_name = "RDC" if floor_num == 0 else f"Etage{floor_num}"
+
+                # ✅ Générer le sol avec le système avancé
+                floor_obj = flooring_gen.generate_floor(
+                    floor_type=props.flooring_type,
+                    width=inset_width,
+                    length=inset_length,
+                    room_name=room_name,
+                    height=z_pos
+                )
+
+                if floor_obj:
+                    # ✅ FIX BUG #5: Position centrée dans la maison avec hauteur correcte
+                    floor_obj.location = (width/2 - inset_width/2, length/2 - inset_length/2, z_pos)
+                    collection.objects.link(floor_obj)
+                    floors.append(floor_obj)
+
+            return floors
+
+        # ✅ SYSTÈME SIMPLE (code original)
         for floor_num in range(props.num_floors):
             if floor_num == 0:
                 z_pos = floor_thickness / 2
             else:
                 z_pos = floor_num * props.floor_height + floor_thickness / 2
-            
+
             inset_width = width * FLOOR_INSET
             inset_length = length * FLOOR_INSET
-            
+
             location = Vector((width/2, length/2, z_pos))
             dimensions = Vector((inset_width, inset_length, floor_thickness))
-            
+
             floor_name = f"Floor_Ground" if floor_num == 0 else f"Floor_{floor_num}"
             floor, mesh = self._create_box_mesh(floor_name, location, dimensions)
             collection.objects.link(floor)
             floor["house_part"] = "floor"
             floors.append(floor)
-        
+
         return floors
     
     def _generate_roof(self, context, props, collection):
@@ -625,21 +840,22 @@ class HOUSE_OT_generate_auto(Operator):
         roof_type = props.roof_type
         roof_pitch = props.roof_pitch
         roof_overhang = props.roof_overhang
-        
+
+        # ✅ FIX BUG #1: Suppression du paramètre collection inutilisé dans les appels
         if roof_type == 'FLAT':
-            roof = self._create_flat_roof(width, length, total_height, roof_overhang, collection)
+            roof = self._create_flat_roof(width, length, total_height, roof_overhang)
         elif roof_type == 'GABLE':
-            roof = self._create_gable_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
+            roof = self._create_gable_roof(width, length, total_height, roof_pitch, roof_overhang)
         elif roof_type == 'HIP':
-            roof = self._create_hip_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
+            roof = self._create_hip_roof(width, length, total_height, roof_pitch, roof_overhang)
         elif roof_type == 'SHED':
-            roof = self._create_shed_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
+            roof = self._create_shed_roof(width, length, total_height, roof_pitch, roof_overhang)
         elif roof_type == 'GAMBREL':
-            roof = self._create_gambrel_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
+            roof = self._create_gambrel_roof(width, length, total_height, roof_pitch, roof_overhang)
         else:
             # Fallback au toit plat si type inconnu
             print(f"[House] ⚠️ Type de toit '{roof_type}' inconnu, utilisation d'un toit plat")
-            roof = self._create_flat_roof(width, length, total_height, roof_overhang, collection)
+            roof = self._create_flat_roof(width, length, total_height, roof_overhang)
 
         roof.name = f"Roof_{roof_type}"
         roof["house_part"] = "roof"
@@ -647,7 +863,7 @@ class HOUSE_OT_generate_auto(Operator):
         
         return roof
     
-    def _create_flat_roof(self, width, length, height, overhang, collection):
+    def _create_flat_roof(self, width, length, height, overhang):
         """Toit plat"""
         thickness = ROOF_THICKNESS_FLAT
         
@@ -657,12 +873,29 @@ class HOUSE_OT_generate_auto(Operator):
         roof, mesh = self._create_box_mesh("Roof_Flat", location, dimensions)
         return roof
     
-    def _create_gable_roof(self, width, length, height, pitch, overhang, collection):
+    def _create_gable_roof(self, width, length, height, pitch, overhang):
         """Toit à 2 pans"""
         pitch_rad = math.radians(pitch)
+
+        # ✅ FIX BUG #8: Validation de pente extrême pour GABLE
+        if pitch < 15.0:
+            print(f"[House] ⚠️ Pente très faible ({pitch}°) - toit presque plat, considérez un toit FLAT")
+        elif pitch > 50.0:
+            print(f"[House] ⚠️ Pente très raide ({pitch}°) - toit très incliné, vérifiez le réalisme")
+
         roof_height = (width/2) * math.tan(pitch_rad)
+
+        # ✅ FIX BUG #2: Limiter la hauteur à 1.5× la hauteur des murs (réalisme)
+        max_roof_height = height * 1.5
+        if roof_height > max_roof_height:
+            print(f"[House] ⚠️ Toit à 2 pans trop haut ({roof_height:.2f}m), limité à {max_roof_height:.2f}m")
+            roof_height = max_roof_height
+
         roof_thickness = ROOF_THICKNESS_PITCHED
-        
+
+        # ✅ FIX BUG #6: Ajouter logging comme SHED/GAMBREL
+        print(f"[House] Toit à 2 pans: pente {pitch}°, hauteur {roof_height:.2f}m (largeur {width:.1f}m)")
+
         bm = bmesh.new()
         
         try:
@@ -697,38 +930,123 @@ class HOUSE_OT_generate_auto(Operator):
         
         return roof
     
-    def _create_hip_roof(self, width, length, height, pitch, overhang, collection):
-        """Toit à 4 pans"""
+    def _create_hip_roof(self, width, length, height, pitch, overhang):
+        """Toit à 4 pans RECTANGULAIRE (vrai toit en croupe)"""
         pitch_rad = math.radians(pitch)
-        base_size = max(width, length) + overhang * 2
-        top_size = min(width, length) / 2
-        roof_height = (base_size - top_size) / 2 * math.tan(pitch_rad)
-        
+
+        # ✅ FIX BUG #8: Validation de pente extrême pour HIP
+        if pitch < 15.0:
+            print(f"[House] ⚠️ Pente très faible ({pitch}°) - toit presque plat, considérez un toit FLAT")
+        elif pitch > 50.0:
+            print(f"[House] ⚠️ Pente très raide ({pitch}°) - toit très incliné, vérifiez le réalisme")
+
+        # ✅ FIX CRITIQUE: Calcul basé sur la plus petite dimension (standard architectural)
+        # Le toit HIP s'élève depuis les bords jusqu'au faîtage central
+        min_dim = min(width, length)
+
+        # Hauteur basée sur la moitié de la plus petite dimension
+        roof_height = (min_dim / 2) * math.tan(pitch_rad)
+
+        # ✅ FIX BUG #3: Limiter la hauteur à 1.5× la hauteur des murs (réalisme)
+        max_roof_height = height * 1.5
+        if roof_height > max_roof_height:
+            print(f"[House] ⚠️ Toit à 4 pans trop haut ({roof_height:.2f}m), limité à {max_roof_height:.2f}m")
+            roof_height = max_roof_height
+
+        print(f"[House] Toit à 4 pans: pente {pitch}°, hauteur {roof_height:.2f}m (dimensions {width:.1f}m × {length:.1f}m)")
+
+        # ✅ SÉCURITÉ: Vérification dimensions valides
+        if width <= 0 or length <= 0 or roof_height <= 0:
+            print(f"[House] ❌ ERREUR: Dimensions invalides pour toit HIP (w={width}, l={length}, h={roof_height})")
+            # Fallback: créer un toit plat minimal
+            return self._create_flat_roof(width, length, height, overhang)
+
         bm = bmesh.new()
-        
+
         try:
-            bmesh.ops.create_cone(
-                bm,
-                cap_ends=True,
-                segments=4,
-                radius1=base_size / 2,
-                radius2=top_size / 2,
-                depth=roof_height
-            )
-            
-            rotation_matrix = Matrix.Rotation(math.radians(45), 4, 'Z')
-            bmesh.ops.rotate(bm, verts=bm.verts, cent=(0, 0, 0), matrix=rotation_matrix)
-            
+            o = overhang
+            h = height
+            w = width
+            l = length
+            rh = roof_height
+            roof_thickness = ROOF_THICKNESS_PITCHED
+
+            # ✅ GÉOMÉTRIE MANUELLE RECTANGULAIRE (pas de cone!)
+            # Calculer le faîtage selon les proportions
+            if width > length:
+                # Maison plus large que longue: faîtage horizontal le long de X
+                ridge_length = width - length
+
+                # Base (8 vertices du périmètre avec overhang)
+                v1 = bm.verts.new((-o, -o, h))                    # Avant-gauche
+                v2 = bm.verts.new((w + o, -o, h))                 # Avant-droit
+                v3 = bm.verts.new((w + o, l + o, h))              # Arrière-droit
+                v4 = bm.verts.new((-o, l + o, h))                 # Arrière-gauche
+
+                # Faîtage (2 vertices au sommet)
+                ridge_start_x = (w - ridge_length) / 2
+                ridge_end_x = ridge_start_x + ridge_length
+                ridge_y = l / 2
+
+                v5 = bm.verts.new((ridge_start_x, ridge_y, h + rh))    # Sommet gauche
+                v6 = bm.verts.new((ridge_end_x, ridge_y, h + rh))      # Sommet droit
+
+                # Faces du toit (4 pans)
+                bm.faces.new([v1, v2, v6, v5])  # Pan avant (trapèze)
+                bm.faces.new([v3, v4, v5, v6])  # Pan arrière (trapèze)
+                bm.faces.new([v1, v5, v4])      # Pan gauche (triangle)
+                bm.faces.new([v2, v3, v6])      # Pan droit (triangle)
+
+            elif length > width:
+                # Maison plus longue que large: faîtage horizontal le long de Y
+                ridge_length = length - width
+
+                # Base (périmètre avec overhang)
+                v1 = bm.verts.new((-o, -o, h))
+                v2 = bm.verts.new((w + o, -o, h))
+                v3 = bm.verts.new((w + o, l + o, h))
+                v4 = bm.verts.new((-o, l + o, h))
+
+                # Faîtage le long de Y
+                ridge_x = w / 2
+                ridge_start_y = (l - ridge_length) / 2
+                ridge_end_y = ridge_start_y + ridge_length
+
+                v5 = bm.verts.new((ridge_x, ridge_start_y, h + rh))   # Sommet avant
+                v6 = bm.verts.new((ridge_x, ridge_end_y, h + rh))     # Sommet arrière
+
+                # Faces du toit (4 pans)
+                bm.faces.new([v1, v2, v5])      # Pan avant (triangle)
+                bm.faces.new([v3, v4, v6])      # Pan arrière (triangle)
+                bm.faces.new([v1, v5, v6, v4])  # Pan gauche (trapèze)
+                bm.faces.new([v2, v3, v6, v5])  # Pan droit (trapèze)
+            else:
+                # Maison carrée: pyramide à 4 pans triangulaires
+                v1 = bm.verts.new((-o, -o, h))
+                v2 = bm.verts.new((w + o, -o, h))
+                v3 = bm.verts.new((w + o, l + o, h))
+                v4 = bm.verts.new((-o, l + o, h))
+
+                # Sommet unique au centre
+                v5 = bm.verts.new((w / 2, l / 2, h + rh))
+
+                # 4 faces triangulaires
+                bm.faces.new([v1, v2, v5])
+                bm.faces.new([v2, v3, v5])
+                bm.faces.new([v3, v4, v5])
+                bm.faces.new([v4, v1, v5])
+
             roof, mesh = self._create_mesh_from_bmesh("HipRoof", bm)
-            
+
         finally:
             bm.free()
-        
-        roof.location = (width/2, length/2, height + roof_height/2)
-        
+
+        # ✅ Position centrée
+        roof.location = (0, 0, 0)
+
         return roof
-    
-    def _create_shed_roof(self, width, length, height, pitch, overhang, collection):
+
+    def _create_shed_roof(self, width, length, height, pitch, overhang):
         """Toit monopente (monte de l'avant vers l'arrière, axe Y)"""
         pitch_rad = math.radians(pitch)
 
@@ -770,11 +1088,12 @@ class HOUSE_OT_generate_auto(Operator):
             # Face inférieure (plafond)
             bm.faces.new([v4_bot, v3_bot, v2_bot, v1_bot])
 
-            # ✅ Faces latérales (fermeture du volume - ordre cohérent)
-            bm.faces.new([v1_top, v1_bot, v2_bot, v2_top])  # Avant (bas, Y = -o)
-            bm.faces.new([v3_top, v3_bot, v4_bot, v4_top])  # Arrière (haut, Y = length+o)
-            bm.faces.new([v4_top, v4_bot, v1_bot, v1_top])  # Gauche (trapèze, X = -o)
-            bm.faces.new([v2_top, v2_bot, v3_bot, v3_top])  # Droite (trapèze, X = width+o)
+            # ✅ FIX BUG #9: Clarification des formes géométriques des faces
+            # Faces latérales (fermeture du volume - ordre cohérent)
+            bm.faces.new([v1_top, v1_bot, v2_bot, v2_top])  # Avant (rectangle bas, Y = -o)
+            bm.faces.new([v3_top, v3_bot, v4_bot, v4_top])  # Arrière (rectangle haut, Y = length+o)
+            bm.faces.new([v4_top, v4_bot, v1_bot, v1_top])  # Gauche (trapèze incliné, X = -o)
+            bm.faces.new([v2_top, v2_bot, v3_bot, v3_top])  # Droite (trapèze incliné, X = width+o)
 
             roof, mesh = self._create_mesh_from_bmesh("ShedRoof", bm)
 
@@ -783,12 +1102,13 @@ class HOUSE_OT_generate_auto(Operator):
 
         return roof
 
-    def _create_gambrel_roof(self, width, length, height, pitch, overhang, collection):
+    def _create_gambrel_roof(self, width, length, height, pitch, overhang):
         """Toit mansarde/gambrel (4 pans brisés)"""
         pitch_rad = math.radians(pitch)
 
+        # ✅ FIX BUG #7: Utiliser width au lieu de min(width, length) pour éviter asymétrie
         # Calcul des hauteurs (pente inférieure plus raide)
-        lower_height = (min(width, length) / 4) * math.tan(pitch_rad * 1.5)  # Pente raide
+        lower_height = (width / 4) * math.tan(pitch_rad * 1.5)  # Pente raide
         upper_height = lower_height * 0.4  # Partie supérieure plus plate
 
         # Limite réaliste
@@ -859,11 +1179,12 @@ class HOUSE_OT_generate_auto(Operator):
         """Génère les trous dans les murs (Boolean) - pour murs SIMPLES uniquement"""
         width = props.house_width
         length = props.house_length
-        
+
         window_height_ratio = style_config.get('window_height_ratio', props.window_height_ratio)
-        
-        num_windows_front = max(2, int(width / WINDOW_SPACING_INTERVAL))
-        num_windows_side = max(2, int(length / WINDOW_SPACING_INTERVAL))
+
+        # ✅ FIX BUG #4: Utiliser calcul sécurisé pour éviter chevauchement
+        num_windows_front = self._calculate_safe_window_count(width, "largeur")
+        num_windows_side = self._calculate_safe_window_count(length, "longueur")
         
         combined_bm = bmesh.new()
         
@@ -973,6 +1294,7 @@ class HOUSE_OT_generate_auto(Operator):
     def _generate_windows_complete(self, context, props, collection, style_config):
         """Génère les fenêtres 3D complètes
 
+        ✅ FIX BUG #4: Calcul sécurisé pour éviter chevauchement fenêtres
         ✅ FIX Z-ORDERING: Les fenêtres sont placées DEVANT les briques 3D (offset -0.005m)
         pour éviter qu'elles soient cachées par le Z-buffer.
 
@@ -991,8 +1313,9 @@ class HOUSE_OT_generate_auto(Operator):
         width = props.house_width
         length = props.house_length
 
-        num_windows_front = max(2, int(width / WINDOW_SPACING_INTERVAL))
-        num_windows_side = max(2, int(length / WINDOW_SPACING_INTERVAL))
+        # ✅ FIX BUG #4: Utiliser calcul sécurisé pour éviter chevauchement
+        num_windows_front = self._calculate_safe_window_count(width, "largeur")
+        num_windows_side = self._calculate_safe_window_count(length, "longueur")
 
         window_height_ratio = style_config.get('window_height_ratio', props.window_height_ratio)
         window_height = props.floor_height * window_height_ratio
@@ -1276,8 +1599,16 @@ class HOUSE_OT_generate_auto(Operator):
                 obj.data.materials.clear()
                 obj.data.materials.append(roof_mat)
             elif part_type == "floor":
-                obj.data.materials.clear()
-                obj.data.materials.append(floor_mat)
+                # ✅ FIX BUG #6: Respecter matériaux du système avancé (comme pour les murs)
+                # Ne PAS écraser les matériaux si le système de sols avancé est activé
+                if hasattr(props, 'use_flooring_system') and props.use_flooring_system:
+                    # Système avancé activé: les sols ont déjà leurs matériaux détaillés
+                    # Ne rien faire, préserver les matériaux créés par flooring.py
+                    pass
+                else:
+                    # Système simple: appliquer couleur unie seulement si pas de matériau
+                    if len(obj.data.materials) == 0:
+                        obj.data.materials.append(floor_mat)
             elif part_type == "glass":
                 obj.data.materials.clear()
                 obj.data.materials.append(glass_mat)

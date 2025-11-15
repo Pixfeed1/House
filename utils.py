@@ -196,10 +196,10 @@ def create_simple_material(name, base_color, roughness=0.7, metallic=0.0):
         mat = bpy.data.materials.new(name=name)
         mat.use_nodes = True
     
-    # Récupérer le noeud Principled BSDF
+    # Récupérer le noeud Principled BSDF (par type pour Blender 4.2)
     nodes = mat.node_tree.nodes
-    principled = nodes.get("Principled BSDF")
-    
+    principled = next((n for n in nodes if n.type == 'BSDF_PRINCIPLED'), None)
+
     if principled:
         principled.inputs["Base Color"].default_value = (*base_color, 1.0)
         principled.inputs["Roughness"].default_value = roughness
@@ -266,8 +266,8 @@ def create_material_with_texture(name, texture_path, base_color=(1, 1, 1)):
         else:
             img = bpy.data.images.load(texture_path)
         node_tex.image = img
-    except:
-        pass
+    except Exception as e:
+        print(f"[House] ⚠️ Impossible de charger la texture '{texture_path}': {e}")
     
     # Connecter les noeuds
     links.new(node_tex.outputs['Color'], node_bsdf.inputs['Base Color'])
@@ -322,21 +322,25 @@ def move_object_to_collection(obj, collection):
 def delete_collection(name, delete_objects=True):
     """
     Supprime une collection
-    
+
     Args:
         name (str): Nom de la collection
         delete_objects (bool): Supprimer aussi les objets dedans
     """
     if name not in bpy.data.collections:
         return
-    
+
     collection = bpy.data.collections[name]
-    
+
     if delete_objects:
         # Supprimer tous les objets de la collection
-        for obj in collection.objects:
+        for obj in list(collection.objects):
+            # Unlink from all collections before removing (Blender 4.2 compatibility)
+            for coll in bpy.data.collections:
+                if obj.name in coll.objects:
+                    coll.objects.unlink(obj)
             bpy.data.objects.remove(obj, do_unlink=True)
-    
+
     # Supprimer la collection
     bpy.data.collections.remove(collection)
 
@@ -370,7 +374,9 @@ def apply_boolean_modifier(target_obj, tool_obj, operation='DIFFERENCE'):
     try:
         bpy.ops.object.modifier_apply(modifier=mod.name)
         return True
-    except:
+    except Exception as e:
+        # ✅ FIX BUG #5: Exception spécifique avec logging au lieu de bare except
+        print(f"[House] ⚠️ Échec application modificateur Boolean: {e}")
         return False
 
 
@@ -474,11 +480,15 @@ def select_objects(objects, deselect_others=True):
 def safe_delete_object(obj):
     """
     Supprime un objet en toute sécurité
-    
+
     Args:
         obj (bpy.types.Object): Objet à supprimer
     """
     if obj and obj.name in bpy.data.objects:
+        # Unlink from all collections before removing (Blender 4.2 compatibility)
+        for coll in bpy.data.collections:
+            if obj.name in coll.objects:
+                coll.objects.unlink(obj)
         bpy.data.objects.remove(obj, do_unlink=True)
 
 

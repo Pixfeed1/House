@@ -857,9 +857,9 @@ class WindowGenerator:
                 links.new(glossy.outputs['BSDF'], mix.inputs[2])
                 links.new(mix.outputs['Shader'], output.inputs['Surface'])
                 
-                # Paramètres de rendu pour transparence
-                mat.blend_method = 'BLEND'
-                mat.shadow_method = 'HASHED' if self.quality == 'MEDIUM' else 'CLIP'
+                # Paramètres de rendu pour transparence (Blender 4.2 compatible)
+                mat.blend_method = 'HASHED'
+                mat.shadow_method = 'HASHED'
                 mat.use_screen_refraction = True
                 mat.refraction_depth = 0.1
             
@@ -891,8 +891,8 @@ class WindowGenerator:
     def _bmesh_to_object(self, bm, name):
         """Convertit un bmesh en objet Blender"""
         # Nettoyer et finaliser
-        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0001)
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.001)
+        bm.normal_update()
         
         # Créer le mesh
         mesh = bpy.data.meshes.new(name)

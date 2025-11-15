@@ -14,6 +14,8 @@ from bpy.props import (
     FloatProperty,
     IntProperty,
 )
+import json
+import os
 
 
 class HouseAddonPreferences(AddonPreferences):
@@ -269,7 +271,7 @@ class HouseAddonPreferences(AddonPreferences):
         
         if self.experimental_features:
             col.prop(self, "enable_ai_generation")
-            col.label(text="⚠ Attention : Ces fonctionnalités peuvent être instables", icon='ERROR')
+            col.label(text="Attention : Ces fonctionnalités peuvent être instables", icon='ERROR')
         
         layout.separator()
         
@@ -334,13 +336,50 @@ class HOUSE_OT_export_preferences(bpy.types.Operator):
     bl_idname = "house.export_preferences"
     bl_label = "Exporter les préférences"
     bl_options = {'REGISTER'}
-    
-    filepath: StringProperty(subtype='FILE_PATH')
-    
+
+    filepath: StringProperty(
+        subtype='FILE_PATH',
+        default="house_preferences.json"
+    )
+    filter_glob: StringProperty(
+        default="*.json",
+        options={'HIDDEN'}
+    )
+
     def execute(self, context):
-        self.report({'INFO'}, "Fonctionnalité à venir...")
-        return {'FINISHED'}
-    
+        prefs = context.preferences.addons[__package__].preferences
+
+        # Collecter toutes les préférences
+        prefs_data = {
+            'default_units': prefs.default_units,
+            'auto_save': prefs.auto_save,
+            'show_tips': prefs.show_tips,
+            'debug_mode': prefs.debug_mode,
+            'default_style': prefs.default_style,
+            'auto_apply_materials': prefs.auto_apply_materials,
+            'create_collection': prefs.create_collection,
+            'ui_scale': prefs.ui_scale,
+            'show_advanced_by_default': prefs.show_advanced_by_default,
+            'panel_category': prefs.panel_category,
+            'max_subdivision': prefs.max_subdivision,
+            'use_instances': prefs.use_instances,
+            'optimize_mesh': prefs.optimize_mesh,
+            'assets_path': prefs.assets_path,
+            'presets_path': prefs.presets_path,
+            'enable_shortcuts': prefs.enable_shortcuts,
+            'experimental_features': prefs.experimental_features,
+            'enable_ai_generation': prefs.enable_ai_generation,
+        }
+
+        try:
+            with open(self.filepath, 'w') as f:
+                json.dump(prefs_data, f, indent=4)
+            self.report({'INFO'}, f"Préférences exportées vers {self.filepath}")
+            return {'FINISHED'}
+        except Exception as e:
+            self.report({'ERROR'}, f"Erreur lors de l'export: {str(e)}")
+            return {'CANCELLED'}
+
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
@@ -351,13 +390,35 @@ class HOUSE_OT_import_preferences(bpy.types.Operator):
     bl_idname = "house.import_preferences"
     bl_label = "Importer les préférences"
     bl_options = {'REGISTER'}
-    
+
     filepath: StringProperty(subtype='FILE_PATH')
-    
+    filter_glob: StringProperty(
+        default="*.json",
+        options={'HIDDEN'}
+    )
+
     def execute(self, context):
-        self.report({'INFO'}, "Fonctionnalité à venir...")
-        return {'FINISHED'}
-    
+        prefs = context.preferences.addons[__package__].preferences
+
+        if not os.path.exists(self.filepath):
+            self.report({'ERROR'}, "Fichier introuvable")
+            return {'CANCELLED'}
+
+        try:
+            with open(self.filepath, 'r') as f:
+                prefs_data = json.load(f)
+
+            # Appliquer toutes les préférences
+            for key, value in prefs_data.items():
+                if hasattr(prefs, key):
+                    setattr(prefs, key, value)
+
+            self.report({'INFO'}, f"Préférences importées depuis {self.filepath}")
+            return {'FINISHED'}
+        except Exception as e:
+            self.report({'ERROR'}, f"Erreur lors de l'import: {str(e)}")
+            return {'CANCELLED'}
+
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
