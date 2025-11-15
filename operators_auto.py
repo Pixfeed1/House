@@ -16,8 +16,8 @@ import random
 # Import du module de fenêtres
 from .windows import WindowGenerator
 
-# Import du système de sols avancé
-from .flooring import FlooringGenerator, QUALITY_LOW, QUALITY_MEDIUM, QUALITY_HIGH, QUALITY_ULTRA
+# Import du système de sols avancé (architecture modulaire)
+from .floor_types import FlooringGenerator, QUALITY_LOW, QUALITY_MEDIUM, QUALITY_HIGH, QUALITY_ULTRA
 
 # ============================================================
 # MODE DEBUG (activer pour logs détaillés)
