@@ -96,27 +96,32 @@ class HOUSE_OT_add_wall(Operator):
     
     def modal(self, context, event):
         context.area.tag_redraw()
-        
+
         if event.type == 'MOUSEMOVE':
             # Suivre la souris
             if self.is_drawing:
-                # Convertir la position de la souris en coordonnées 3D
+                # Mettre à jour le curseur 3D avec la position de la souris
+                # La position du curseur sera utilisée au prochain clic
                 pass
-        
+
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
             if not self.is_drawing:
                 # Premier clic : définir le point de départ
                 self.is_drawing = True
                 # Récupérer la position du curseur 3D
                 self.start_point = context.scene.cursor.location[:2]
+                self.report({'INFO'}, f"Point de départ: ({self.start_point[0]:.2f}, {self.start_point[1]:.2f})")
             else:
                 # Deuxième clic : définir le point de fin et créer le mur
                 self.end_point = context.scene.cursor.location[:2]
+                self.report({'INFO'}, f"Point de fin: ({self.end_point[0]:.2f}, {self.end_point[1]:.2f})")
                 return self.execute(context)
-        
+
         if event.type in {'RIGHTMOUSE', 'ESC'}:
+            if self.is_drawing:
+                self.report({'INFO'}, "Création de mur annulée")
             return {'CANCELLED'}
-        
+
         return {'RUNNING_MODAL'}
 
 
@@ -159,10 +164,11 @@ class HOUSE_OT_add_door(Operator):
         bpy.ops.mesh.primitive_cube_add(size=1, location=location)
         door = context.active_object
         door.name = "Door_Manual"
-        
+
         door.scale = (door_width / 2, door_depth / 2, door_height / 2)
-        door.display_type = 'WIRE'
-        
+        if hasattr(door, "display_type"):
+            door.display_type = 'WIRE'
+
         bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
         
         # Ajouter à la collection House
@@ -213,10 +219,11 @@ class HOUSE_OT_add_window(Operator):
         bpy.ops.mesh.primitive_cube_add(size=1, location=location)
         window = context.active_object
         window.name = "Window_Manual"
-        
+
         window.scale = (window_width / 2, window_depth / 2, window_height / 2)
-        window.display_type = 'WIRE'
-        
+        if hasattr(window, "display_type"):
+            window.display_type = 'WIRE'
+
         bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
         
         # Ajouter à la collection House
@@ -347,8 +354,8 @@ class HOUSE_OT_finalize_manual(Operator):
             for mod in wall.modifiers:
                 try:
                     bpy.ops.object.modifier_apply(modifier=mod.name)
-                except:
-                    pass
+                except Exception as e:
+                    print(f"[House] ⚠️ Impossible d'appliquer le modificateur '{mod.name}' sur {wall.name}: {e}")
         
         # 3. Masquer les ouvertures (elles ont servi pour les booléens)
         for opening in openings:
@@ -461,8 +468,9 @@ class HOUSE_OT_finalize_manual(Operator):
             mat.use_nodes = True
         
         nodes = mat.node_tree.nodes
-        principled = nodes.get("Principled BSDF")
-        
+        # Chercher par type pour compatibilité Blender 4.2
+        principled = next((n for n in nodes if n.type == 'BSDF_PRINCIPLED'), None)
+
         if principled:
             principled.inputs["Base Color"].default_value = (*color, 1.0)
             principled.inputs["Roughness"].default_value = 0.7
@@ -477,6 +485,40 @@ class HOUSE_OT_finalize_manual(Operator):
             obj.data.materials[0] = material
 
 
+class HOUSE_OT_generate_from_plan(Operator):
+    """Génère une maison automatiquement depuis un plan importé"""
+    bl_idname = "house.generate_from_plan"
+    bl_label = "Générer depuis le plan"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        props = context.scene.house_generator
+
+        # Vérifier qu'un plan existe
+        plan_obj = bpy.data.objects.get("Plan_Reference")
+        if not plan_obj:
+            self.report({'WARNING'}, "Aucun plan importé. Utilisez d'abord 'Importer le plan'")
+            return {'CANCELLED'}
+
+        # Récupérer tous les murs manuels de la collection House
+        if "House" not in bpy.data.collections:
+            self.report({'WARNING'}, "Aucune construction manuelle trouvée")
+            return {'CANCELLED'}
+
+        collection = bpy.data.collections["House"]
+        walls = [obj for obj in collection.objects if 'Wall' in obj.name and obj.type == 'MESH']
+
+        if not walls:
+            self.report({'WARNING'}, "Aucun mur trouvé. Créez d'abord des murs avec 'Ajouter un mur'")
+            return {'CANCELLED'}
+
+        # Appeler l'opérateur de finalisation qui fait le travail
+        bpy.ops.house.finalize_manual()
+
+        self.report({'INFO'}, f"Maison générée avec {len(walls)} murs")
+        return {'FINISHED'}
+
+
 # Liste des classes à enregistrer
 classes = (
     HOUSE_OT_add_wall,
@@ -485,6 +527,7 @@ classes = (
     HOUSE_OT_import_plan,
     HOUSE_OT_toggle_plan,
     HOUSE_OT_finalize_manual,
+    HOUSE_OT_generate_from_plan,
 )
 
 

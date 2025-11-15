@@ -41,12 +41,12 @@ def get_brick_presets_safe(self, context):
     
     # Fallback: presets hardcodés si le scanner ne marche pas
     return [
-        ('BRICK_RED', "🧱 Briques rouges", "Briques rouges traditionnelles", 'MATERIAL', 0),
-        ('BRICK_RED_DARK', "🧱 Briques rouges foncées", "Briques rouges sombres", 'MATERIAL', 1),
-        ('BRICK_ORANGE', "🧱 Briques orangées", "Briques orangées/terre cuite", 'MATERIAL', 2),
-        ('BRICK_BROWN', "🧱 Briques brunes", "Briques brunes/chocolat", 'MATERIAL', 3),
-        ('BRICK_YELLOW', "🧱 Briques jaunes (London)", "Briques jaunes type London", 'MATERIAL', 4),
-        ('BRICK_GREY', "🧱 Briques grises modernes", "Briques grises contemporaines", 'MATERIAL', 5),
+        ('BRICK_RED', "Briques rouges", "Briques rouges traditionnelles", 'MATERIAL', 0),
+        ('BRICK_RED_DARK', "Briques rouges foncées", "Briques rouges sombres", 'MATERIAL', 1),
+        ('BRICK_ORANGE', "Briques orangées", "Briques orangées/terre cuite", 'MATERIAL', 2),
+        ('BRICK_BROWN', "Briques brunes", "Briques brunes/chocolat", 'MATERIAL', 3),
+        ('BRICK_YELLOW', "Briques jaunes (London)", "Briques jaunes type London", 'MATERIAL', 4),
+        ('BRICK_GREY', "Briques grises modernes", "Briques grises contemporaines", 'MATERIAL', 5),
     ]
 
 
@@ -291,20 +291,9 @@ class HouseGeneratorProperties(PropertyGroup):
     # PORTES
     # ============================================================
     
-    door_width: FloatProperty(
-        name="Largeur porte",
-        description="Largeur de la porte d'entrée",
-        default=1.0,
-        min=0.8,
-        max=2.0,
-        unit='LENGTH',
-        update=regenerate_house
-    )
-    
-    # Alias pour compatibilité
     front_door_width: FloatProperty(
         name="Largeur porte entrée",
-        description="Alias pour door_width",
+        description="Largeur de la porte d'entrée principale",
         default=1.0,
         min=0.8,
         max=2.0,
@@ -334,7 +323,7 @@ class HouseGeneratorProperties(PropertyGroup):
         default='SINGLE',
         update=regenerate_house
     )
-    
+
     door_quality: EnumProperty(
         name="Qualité portes",
         description="Niveau de détail des portes",
@@ -346,22 +335,21 @@ class HouseGeneratorProperties(PropertyGroup):
         default='MEDIUM',
         update=regenerate_house
     )
+
+    include_back_door: BoolProperty(
+        name="Porte arrière",
+        description="Ajouter une porte à l'arrière de la maison",
+        default=False,
+        update=regenerate_house
+    )
     
     # ============================================================
     # GARAGE
     # ============================================================
     
-    add_garage: BoolProperty(
-        name="Ajouter garage",
-        description="Ajouter un garage à la maison",
-        default=False,
-        update=regenerate_house
-    )
-    
-    # Alias pour compatibilité avec l'ancien code
     include_garage: BoolProperty(
         name="Inclure garage",
-        description="Inclure un garage (alias pour add_garage)",
+        description="Ajouter un garage à la maison",
         default=False,
         update=regenerate_house
     )
@@ -398,37 +386,32 @@ class HouseGeneratorProperties(PropertyGroup):
         default='LEFT',
         update=regenerate_house
     )
+
+    garage_size: EnumProperty(
+        name="Taille garage",
+        description="Taille du garage",
+        items=[
+            ('SINGLE', "Simple (1 voiture)", "Garage pour 1 voiture"),
+            ('DOUBLE', "Double (2 voitures)", "Garage pour 2 voitures"),
+        ],
+        default='SINGLE',
+        update=regenerate_house
+    )
     
     # ============================================================
     # BALCONS / TERRASSES
     # ============================================================
     
-    add_balcony: BoolProperty(
+    include_balcony: BoolProperty(
         name="Ajouter balcon",
         description="Ajouter un balcon aux étages supérieurs",
         default=False,
         update=regenerate_house
     )
     
-    # Alias pour compatibilité
-    include_balcony: BoolProperty(
-        name="Inclure balcon",
-        description="Alias pour add_balcony (compatibilité)",
-        default=False,
-        update=regenerate_house
-    )
-    
-    # Propriétés terrasse (manquantes)
-    add_terrace: BoolProperty(
+    include_terrace: BoolProperty(
         name="Ajouter terrasse",
         description="Ajouter une terrasse au rez-de-chaussée",
-        default=False,
-        update=regenerate_house
-    )
-    
-    include_terrace: BoolProperty(
-        name="Inclure terrasse",
-        description="Alias pour add_terrace (compatibilité)",
         default=False,
         update=regenerate_house
     )
@@ -452,7 +435,54 @@ class HouseGeneratorProperties(PropertyGroup):
         unit='LENGTH',
         update=regenerate_house
     )
-    
+
+    # ============================================================
+    # CHEMINÉE
+    # ============================================================
+
+    add_chimney: BoolProperty(
+        name="Ajouter cheminée",
+        description="Ajouter une cheminée sur le toit",
+        default=False,
+        update=regenerate_house
+    )
+
+    # ============================================================
+    # DISTRIBUTION DES PIÈCES
+    # ============================================================
+
+    num_rooms: IntProperty(
+        name="Nombre de pièces",
+        description="Nombre de pièces principales",
+        default=3,
+        min=1,
+        max=10,
+        update=regenerate_house
+    )
+
+    include_kitchen: BoolProperty(
+        name="Inclure cuisine",
+        description="Inclure une cuisine dans le plan",
+        default=True,
+        update=regenerate_house
+    )
+
+    include_bathroom: BoolProperty(
+        name="Inclure salle de bain",
+        description="Inclure une ou plusieurs salles de bain",
+        default=True,
+        update=regenerate_house
+    )
+
+    num_bathrooms: IntProperty(
+        name="Nombre de salles de bain",
+        description="Nombre de salles de bain",
+        default=1,
+        min=0,
+        max=5,
+        update=regenerate_house
+    )
+
     # ============================================================
     # QUALITÉ GLOBALE
     # ============================================================
@@ -643,7 +673,59 @@ class HouseGeneratorProperties(PropertyGroup):
         max=1.0,
         size=3
     )
-    
+
+    # ============================================================
+    # SOLS / FLOORING (SYSTÈME AVANCÉ)
+    # ============================================================
+
+    use_flooring_system: BoolProperty(
+        name="Utiliser système de sols",
+        description="Activer le système avancé de sols avec mesh détaillés",
+        default=False,
+        update=regenerate_house
+    )
+
+    flooring_type: EnumProperty(
+        name="Type de sol",
+        description="Type de revêtement de sol",
+        items=[
+            # Chaleureux et confortables
+            ('HARDWOOD_SOLID', "Parquet Massif", "Bois véritable, très durable, élégant", 'MATERIAL', 0),
+            ('HARDWOOD_ENGINEERED', "Parquet Contrecollé", "Plus stable et facile à poser", 'MATERIAL', 1),
+            ('LAMINATE', "Stratifié", "Imitation bois, bon rapport qualité/prix", 'MATERIAL', 2),
+
+            # Résistants et faciles d'entretien
+            ('CERAMIC_TILE', "Carrelage Céramique", "Très résistant, idéal cuisine/salle de bain", 'MATERIAL', 3),
+            ('PORCELAIN_TILE', "Grès Cérame", "Plus robuste, imite bois/pierre/béton", 'MATERIAL', 4),
+            ('VINYL', "Vinyle/PVC", "Économique, étanche, en dalles ou lames", 'MATERIAL', 5),
+            ('LINOLEUM', "Linoléum", "Naturel, solide, antibactérien", 'MATERIAL', 6),
+
+            # Élégants et haut de gamme
+            ('MARBLE', "Marbre", "Très esthétique, coûteux", 'MATERIAL', 7),
+            ('NATURAL_STONE', "Pierre Naturelle", "Travertin, ardoise, granit", 'MATERIAL', 8),
+            ('POLISHED_CONCRETE', "Béton Ciré", "Moderne, style contemporain", 'MATERIAL', 9),
+
+            # Confort thermique/acoustique
+            ('CARPET', "Moquette", "Absorbe le son, confortable", 'MATERIAL', 10),
+            ('CORK', "Liège", "Naturel, isolant, résistant à l'humidité", 'MATERIAL', 11),
+        ],
+        default='HARDWOOD_SOLID',
+        update=regenerate_house
+    )
+
+    flooring_quality: EnumProperty(
+        name="Qualité mesh sols",
+        description="Niveau de détail géométrique des sols",
+        items=[
+            ('LOW', "Basse", "Minimal, rapide", 0),
+            ('MEDIUM', "Moyenne", "Bon équilibre", 1),
+            ('HIGH', "Haute", "Très détaillé", 2),
+            ('ULTRA', "Ultra", "Maximum de détails (lourd)", 3),
+        ],
+        default='HIGH',
+        update=regenerate_house
+    )
+
     # ============================================================
     # MODE MANUEL
     # ============================================================

@@ -147,18 +147,18 @@ def generate_walls_with_instancing(
     brick_positions = []
     
     # MUR AVANT
-    print("[BrickGeometry] → Mur AVANT (façade)...")
+    print("[BrickGeometry] → Mur 1/4 (façade)...")
     front_positions = calculate_brick_positions_for_wall(
-        house_width, total_height, 
+        house_width, total_height,
         start_pos=Vector((0, 0, 0)),
         direction='X',
         openings=[o for o in (openings or []) if o.get('wall') == 'front']
     )
     brick_positions.extend(front_positions)
-    print(f"[BrickGeometry]   {len(front_positions)} briques")
-    
+    print(f"[BrickGeometry]   {len(front_positions)} briques calculées")
+
     # MUR ARRIÈRE
-    print("[BrickGeometry] → Mur ARRIÈRE...")
+    print("[BrickGeometry] → Mur 2/4 (arrière)...")
     back_positions = calculate_brick_positions_for_wall(
         house_width, total_height,
         start_pos=Vector((0, house_length, 0)),
@@ -166,10 +166,10 @@ def generate_walls_with_instancing(
         openings=[o for o in (openings or []) if o.get('wall') == 'back']
     )
     brick_positions.extend(back_positions)
-    print(f"[BrickGeometry]   {len(back_positions)} briques")
-    
+    print(f"[BrickGeometry]   {len(back_positions)} briques calculées")
+
     # MUR GAUCHE
-    print("[BrickGeometry] → Mur GAUCHE...")
+    print("[BrickGeometry] → Mur 3/4 (gauche)...")
     left_positions = calculate_brick_positions_for_wall(
         house_length, total_height,
         start_pos=Vector((0, 0, 0)),
@@ -177,10 +177,10 @@ def generate_walls_with_instancing(
         openings=[o for o in (openings or []) if o.get('wall') == 'left']
     )
     brick_positions.extend(left_positions)
-    print(f"[BrickGeometry]   {len(left_positions)} briques")
-    
+    print(f"[BrickGeometry]   {len(left_positions)} briques calculées")
+
     # MUR DROIT
-    print("[BrickGeometry] → Mur DROIT...")
+    print("[BrickGeometry] → Mur 4/4 (droit)...")
     right_positions = calculate_brick_positions_for_wall(
         house_length, total_height,
         start_pos=Vector((house_width, 0, 0)),
@@ -188,7 +188,7 @@ def generate_walls_with_instancing(
         openings=[o for o in (openings or []) if o.get('wall') == 'right']
     )
     brick_positions.extend(right_positions)
-    print(f"[BrickGeometry]   {len(right_positions)} briques")
+    print(f"[BrickGeometry]   {len(right_positions)} briques calculées")
     
     print(f"\n[BrickGeometry] Total positions calculées: {len(brick_positions)}")
     
@@ -251,9 +251,9 @@ def generate_walls_full_geometry(
     """
 
     walls = []
-    
+
     # === MUR AVANT (FAÇADE) ===
-    print("[BrickGeometry] Mur avant (façade)...")
+    print("[BrickGeometry] Génération murs HIGH quality: Mur 1/4 (façade)...")
     wall_front_bricks, wall_front_mortar = generate_brick_wall(
         house_width, total_height, BRICK_DEPTH, quality,
         openings=[o for o in (openings or []) if o.get('wall') == 'front']
@@ -283,7 +283,7 @@ def generate_walls_full_geometry(
     walls.extend([wall_front_bricks, wall_front_mortar])
     
     # === MUR ARRIÈRE ===
-    print("[BrickGeometry] Mur arrière...")
+    print("[BrickGeometry] Génération murs HIGH quality: Mur 2/4 (arrière)...")
     wall_back_bricks, wall_back_mortar = generate_brick_wall(
         house_width, total_height, BRICK_DEPTH, quality,
         openings=[o for o in (openings or []) if o.get('wall') == 'back']
@@ -313,7 +313,7 @@ def generate_walls_full_geometry(
     walls.extend([wall_back_bricks, wall_back_mortar])
     
     # === MUR GAUCHE ===
-    print("[BrickGeometry] Mur gauche...")
+    print("[BrickGeometry] Génération murs HIGH quality: Mur 3/4 (gauche)...")
     wall_left_bricks, wall_left_mortar = generate_brick_wall(
         house_length, total_height, BRICK_DEPTH, quality,
         openings=[o for o in (openings or []) if o.get('wall') == 'left']
@@ -343,7 +343,7 @@ def generate_walls_full_geometry(
     walls.extend([wall_left_bricks, wall_left_mortar])
     
     # === MUR DROIT ===
-    print("[BrickGeometry] Mur droit...")
+    print("[BrickGeometry] Génération murs HIGH quality: Mur 4/4 (droit)...")
     wall_right_bricks, wall_right_mortar = generate_brick_wall(
         house_length, total_height, BRICK_DEPTH, quality,
         openings=[o for o in (openings or []) if o.get('wall') == 'right']
@@ -375,14 +375,20 @@ def generate_walls_full_geometry(
     # Calculer statistiques
     total_bricks = calculate_brick_count(house_width, total_height) * 2 + \
                    calculate_brick_count(house_length, total_height) * 2
-    
+
+    # ✅ FIX : Calculer la hauteur RÉELLE des murs (pour positionner le toit correctement)
+    num_rows = int(total_height / (BRICK_HEIGHT + MORTAR_GAP))
+    real_wall_height = num_rows * (BRICK_HEIGHT + MORTAR_GAP)
+
     print(f"[BrickGeometry] ✅ Maison en briques créée!")
     print(f"[BrickGeometry]    Total briques: ~{total_bricks}")
     print(f"[BrickGeometry]    Objets créés: {len(walls)}")
+    print(f"[BrickGeometry]    Hauteur demandée: {total_height:.3f}m")
+    print(f"[BrickGeometry]    Hauteur réelle: {real_wall_height:.3f}m ({num_rows} rangées)")
     print(f"[BrickGeometry]    Ouvertures exclues: {len(openings or [])}")
     print(f"[BrickGeometry]    Matériau: {brick_material_mode}")
-    
-    return walls
+
+    return walls, real_wall_height
 
 
 # ============================================================
@@ -1004,8 +1010,8 @@ def create_single_brick_mesh(quality='MEDIUM'):
         
         print(f"[BrickGeometry]   ✓ UV mapping créé: {uv_count} loops (box projection)")
 
-        # Recalculer les normales pour un rendu lisse
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        # Recalculer les normales pour un rendu lisse (Blender 4.2 compatible)
+        bm.normal_update()
 
         # ============================================================
         # ÉTAPE 4: ASSIGNER LES MATERIAL SLOTS
@@ -1259,9 +1265,9 @@ def create_mortar_3d_joints(house_width, house_length, total_height, collection,
         
         # Fusionner vertices proches pour optimiser
         bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.001)
-        
-        # Recalculer normales
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+
+        # Recalculer normales (Blender 4.2 compatible)
+        bm.normal_update()
         
         # Créer objet
         mesh = bpy.data.meshes.new("Mortar_3D_Joints")
