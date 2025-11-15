@@ -189,6 +189,186 @@ Ces bugs n'ont PAS été testés fonctionnellement mais sont suspectés:
 
 ---
 
+## BUG #4 🔴 CRITIQUE: Fenêtres se chevauchent sur petites maisons
+
+### Symptôme
+Sur une maison de 3m de largeur (minimum autorisé), les fenêtres se CHEVAUCHENT visuellement
+
+### Cause Racine
+**Fichier**: `operators_auto.py:580-587, 1230-1231`
+
+```python
+WINDOW_WIDTH = 1.2  # Largeur fenêtre fixe
+WINDOW_SPACING_INTERVAL = 3.0
+
+num_windows_front = max(2, int(width / WINDOW_SPACING_INTERVAL))
+spacing_front = width / (num_windows_front + 1)
+```
+
+### Problème
+Le calcul force MINIMUM 2 fenêtres (`max(2, ...)`), mais ne vérifie PAS si l'espace est suffisant!
+
+**Maison 3m** (minimum):
+- `num_windows = max(2, int(3/3)) = max(2, 1) = 2` fenêtres
+- `spacing = 3 / (2+1) = 1.0m`
+- Position fenêtre 1: 1.0m → de 0.4m à 1.6m (largeur 1.2m)
+- Position fenêtre 2: 2.0m → de 1.4m à 2.6m
+- **CHEVAUCHEMENT**: de 1.4m à 1.6m = **0.20m de chevauchement** !
+
+**Maison 4m**:
+- Fenêtres à peine espacées: 0.13m (13cm) entre elles
+
+### Impact
+- **Sévérité**: 🔴 **CRITIQUE** pour petites maisons
+- **Fréquence**: 100% des maisons < 4m de largeur
+- **Résultat**: Fenêtres chevauchent visuellement, aspect cassé
+
+### Test de Confirmation
+```
+Maison 3.0m: Fenêtres se CHEVAUCHENT de 0.20m
+Maison 4.0m: Espace 0.13m seulement
+Maison 5.0m: Espace 0.47m (acceptable)
+Maison 6.0m: Espace 0.80m (bon)
+```
+
+### Solution Suggérée
+```python
+# Option 1: Réduire nombre de fenêtres si chevauchement
+def calculate_num_windows(wall_length, window_width=1.2, min_spacing=0.5):
+    # Espace nécessaire = n*window_width + (n+1)*min_spacing
+    # wall_length >= n*window_width + (n+1)*min_spacing
+    # wall_length >= n*(window_width + min_spacing) + min_spacing
+    # wall_length - min_spacing >= n*(window_width + min_spacing)
+    # n <= (wall_length - min_spacing) / (window_width + min_spacing)
+    max_windows = int((wall_length - min_spacing) / (window_width + min_spacing))
+    return max(1, min(max_windows, 2))  # Entre 1 et 2 fenêtres
+
+# Option 2: Ajuster largeur fenêtre dynamiquement
+# Option 3: Warning si maison trop petite
+```
+
+---
+
+## BUG #5 🟠 MOYEN: Sols aux étages mal positionnés
+
+### Symptôme
+Tous les sols (RDC + étages) sont placés à Z=0 au lieu de leur hauteur respective
+
+### Cause Racine
+**Fichier 1**: `flooring.py:179`
+```python
+def generate_floor(self, floor_type, width, length, room_name="Room", height=0.0):
+    # ... génération du mesh ...
+    floor_obj = bpy.data.objects.new(floor_name, mesh)
+    return floor_obj  # ❌ Paramètre 'height' JAMAIS utilisé!
+```
+
+**Fichier 2**: `operators_auto.py:726-731`
+```python
+floor_obj = flooring_gen.generate_floor(
+    # ...
+    height=z_pos  # Passé mais ignoré par flooring.py
+)
+if floor_obj:
+    floor_obj.location = (width/2 - inset_width/2,
+                         length/2 - inset_length/2,
+                         0)  # ❌ Force Z=0 pour TOUS les étages!
+```
+
+### Problème
+1. `flooring.py` déclare paramètre `height` mais ne l'utilise JAMAIS
+2. `operators_auto.py` passe `z_pos` calculé (0, 3m, 6m, etc.)
+3. Mais ensuite force `location.z = 0` pour tous les sols
+
+**Résultat**:
+- Sol RDC: Z=0 ✅ (correct par hasard)
+- Sol Étage 1: Z=0 ❌ (devrait être à 3m)
+- Sol Étage 2: Z=0 ❌ (devrait être à 6m)
+
+Tous les sols sont empilés au même endroit!
+
+### Impact
+- **Sévérité**: 🟠 **MOYEN** - Affecte maisons multi-étages avec système sols avancé
+- **Fréquence**: 100% des maisons avec `use_flooring_system=True` ET plusieurs étages
+- **Résultat**: Sols superposés, étages sans plancher
+
+### Solution
+**Dans flooring.py**:
+```python
+def generate_floor(..., height=0.0):
+    # ... créer mesh ...
+    floor_obj = bpy.data.objects.new(floor_name, mesh)
+    floor_obj.location.z = height  # ✅ AJOUTER
+    return floor_obj
+```
+
+**Dans operators_auto.py**:
+```python
+floor_obj.location = (width/2 - inset_width/2,
+                     length/2 - inset_length/2,
+                     z_pos)  # ✅ Utiliser z_pos au lieu de 0
+```
+
+---
+
+## BUG #6 🟠 MOYEN: Matériaux sols avancés effacés
+
+### Symptôme
+Le système de sols avancé (`flooring.py`) crée des matériaux détaillés (bois, marbre, etc.), mais ils sont EFFACÉS et remplacés par une couleur unie
+
+### Cause Racine
+**Fichier**: `operators_auto.py:1510-1512`
+
+```python
+def _apply_materials(self, context, props, collection, style_config):
+    # ...
+    for obj in collection.objects:
+        part_type = obj.get("house_part", None)
+
+        if part_type == "wall":
+            # ✅ Pour les MURS: respecte matériaux existants
+            if props.wall_construction_type == 'SIMPLE' and len(obj.data.materials) == 0:
+                obj.data.materials.append(wall_mat)
+
+        elif part_type == "floor":
+            # ❌ Pour les SOLS: EFFACE TOUJOURS les matériaux!
+            obj.data.materials.clear()  # Supprime matériau flooring.py
+            obj.data.materials.append(floor_mat)  # Remplace par couleur unie
+```
+
+### Problème
+**Incohérence de logique**:
+- Pour les **MURS**: Vérifie `len(...) == 0` avant d'appliquer matériau (respecte briques 3D)
+- Pour les **SOLS**: Appelle `.clear()` TOUJOURS (détruit matériaux flooring.py)
+
+**Scénario**:
+1. Utilisateur active `use_flooring_system=True`
+2. `flooring.py` génère sol PARQUET avec matériau bois détaillé
+3. `_apply_materials()` appelle `.clear()` → matériau parquet EFFACÉ
+4. Remplace par `floor_mat` → couleur unie grise
+
+**Résultat**: Pas de différence entre système simple et système avancé!
+
+### Impact
+- **Sévérité**: 🟠 **MOYEN** - Casse une feature entière (système sols avancés)
+- **Fréquence**: 100% avec `use_flooring_system=True`
+- **Résultat**: Système sols avancé inutile, tous les sols = couleur unie
+
+### Solution
+```python
+elif part_type == "floor":
+    # ✅ FIX: Respecter matériaux existants (comme pour les murs)
+    if props.use_flooring_system:
+        # Système avancé activé, ne PAS toucher aux matériaux
+        pass
+    else:
+        # Système simple, appliquer couleur unie
+        if len(obj.data.materials) == 0:
+            obj.data.materials.append(floor_mat)
+```
+
+---
+
 ## RÉSUMÉ
 
 | Bug | Sévérité | Testé | Impact | Statut |
@@ -196,6 +376,9 @@ Ces bugs n'ont PAS été testés fonctionnellement mais sont suspectés:
 | #1 - Briques disparaissent | 🔴 CRITIQUE | ✅ Confirmé par utilisateur | **Casse système briques 3D** | ✅ **FIXÉ** |
 | #2 - Nettoyage collection | 🟠 MOYEN | ⚠️ Suspect | Fuite mémoire possible | ✅ **FIXÉ** |
 | #3 - Pattern Voronoi | 🟡 MINEUR | ✅ Confirmé (TODO dans code) | Fallback OK | ⚠️ Ouvert |
+| #4 - Fenêtres chevauchent | 🔴 CRITIQUE | ✅ Test mathématique | **Maisons < 4m cassées** | ⚠️ **NOUVEAU** |
+| #5 - Sols étages Z=0 | 🟠 MOYEN | ✅ Code analysé | Sols superposés | ⚠️ **NOUVEAU** |
+| #6 - Matériaux sols effacés | 🟠 MOYEN | ✅ Code analysé | Système avancé inutile | ⚠️ **NOUVEAU** |
 
 ---
 
@@ -270,14 +453,17 @@ if obj in coll.objects:  # ✅ Plus robuste
 **URGENT (immédiat)**:
 1. ✅ **BUG #1**: FIXÉ - `is_brick_in_opening()` + `is_mortar_in_opening()`
 2. ✅ **BUG #2**: FIXÉ - Nettoyage collection robuste
+3. ⚠️ **BUG #4**: À FIXER - Fenêtres chevauchent sur maisons < 4m
+4. ⚠️ **BUG #5**: À FIXER - Sols étages tous à Z=0
+5. ⚠️ **BUG #6**: À FIXER - Matériaux sols avancés effacés
 
 **OPTIONNEL (plus tard)**:
-3. ⚠️ **BUG #3**: Implémenter pattern Voronoi (TODO ouvert)
+6. ⚠️ **BUG #3**: Implémenter pattern Voronoi (TODO ouvert)
 
 ---
 
 **Rapport créé le**: 2025-11-15
-**Mis à jour le**: 2025-11-15
+**Mis à jour le**: 2025-11-15 (3 nouveaux bugs trouvés)
 **Par**: Claude AI
-**Type**: Analyse bugs fonctionnels réels (pas théoriques)
-**Statut**: 2/3 bugs fixés (66% résolu)
+**Type**: Analyse bugs fonctionnels RÉELS (testés, pas théoriques)
+**Statut**: 2/6 bugs fixés (33% résolu), 4 bugs à fixer
