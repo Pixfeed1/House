@@ -1044,7 +1044,7 @@ def create_single_brick_mesh(quality='MEDIUM'):
     return obj
 
 
-def is_brick_in_opening(brick_x, brick_y, brick_z, brick_width, brick_height, openings):
+def is_brick_in_opening(brick_x, brick_y, brick_z, brick_width, brick_depth, brick_height, openings):
     """Vérifie si une brique est dans une zone d'ouverture (fenêtre/porte)
 
     ✅ FIX CRITIQUE: Vérifie maintenant les 3 dimensions (X, Y, Z) au lieu de seulement X et Z.
@@ -1054,8 +1054,9 @@ def is_brick_in_opening(brick_x, brick_y, brick_z, brick_width, brick_height, op
         brick_x (float): Position X de la brique
         brick_y (float): Position Y de la brique (profondeur)
         brick_z (float): Position Z de la brique (hauteur)
-        brick_width (float): Largeur de la brique
-        brick_height (float): Hauteur de la brique
+        brick_width (float): Largeur de la brique (dimension selon X)
+        brick_depth (float): Profondeur de la brique (dimension selon Y)
+        brick_height (float): Hauteur de la brique (dimension selon Z)
         openings (list): Liste des ouvertures (fenêtres/portes) avec 'x', 'y', 'z', 'width', 'height', 'depth'
 
     Returns:
@@ -1065,14 +1066,14 @@ def is_brick_in_opening(brick_x, brick_y, brick_z, brick_width, brick_height, op
     if not openings:
         return False
 
-    if brick_width <= 0 or brick_height <= 0:
-        print(f"[BrickGeometry] ⚠️ is_brick_in_opening: dimensions invalides (w={brick_width}, h={brick_height})")
+    if brick_width <= 0 or brick_depth <= 0 or brick_height <= 0:
+        print(f"[BrickGeometry] ⚠️ is_brick_in_opening: dimensions invalides (w={brick_width}, d={brick_depth}, h={brick_height})")
         return False
 
     # ✅ SÉCURITÉ 2: Calculer le centre de la brique avec validation
     try:
         brick_center_x = brick_x + brick_width / 2
-        brick_center_y = brick_y + BRICK_DEPTH / 2  # ✅ FIX CORRIGÉ: Utiliser BRICK_DEPTH pour Y (profondeur), pas brick_height!
+        brick_center_y = brick_y + brick_depth / 2  # ✅ FIX CORRIGÉ: Utiliser brick_depth passé en paramètre!
         brick_center_z = brick_z + brick_height / 2
     except (TypeError, ValueError) as e:
         print(f"[BrickGeometry] ❌ Erreur calcul centre brique: {e}")
@@ -1131,7 +1132,7 @@ def is_brick_in_opening(brick_x, brick_y, brick_z, brick_width, brick_height, op
 
 
 
-def is_mortar_in_opening(mortar_x, mortar_y, mortar_z, mortar_width, mortar_height, openings):
+def is_mortar_in_opening(mortar_x, mortar_y, mortar_z, mortar_width, mortar_depth, mortar_height, openings):
     """Vérifie si un joint de mortier est dans une ouverture
 
     ✅ FIX CRITIQUE: Vérifie maintenant les 3 dimensions (X, Y, Z) - même fix que is_brick_in_opening()
@@ -1140,8 +1141,9 @@ def is_mortar_in_opening(mortar_x, mortar_y, mortar_z, mortar_width, mortar_heig
         mortar_x (float): Position X du mortier
         mortar_y (float): Position Y du mortier
         mortar_z (float): Position Z du mortier (hauteur)
-        mortar_width (float): Largeur du mortier
-        mortar_height (float): Hauteur du mortier
+        mortar_width (float): Largeur du mortier (dimension selon X)
+        mortar_depth (float): Profondeur du mortier (dimension selon Y)
+        mortar_height (float): Hauteur du mortier (dimension selon Z)
         openings (list): Liste des ouvertures
 
     Returns:
@@ -1151,13 +1153,13 @@ def is_mortar_in_opening(mortar_x, mortar_y, mortar_z, mortar_width, mortar_heig
     if not openings:
         return False
 
-    if mortar_width <= 0 or mortar_height <= 0:
+    if mortar_width <= 0 or mortar_depth <= 0 or mortar_height <= 0:
         return False
 
     # ✅ SÉCURITÉ 2: Calculer centre avec validation
     try:
         mortar_center_x = mortar_x + mortar_width / 2
-        mortar_center_y = mortar_y + BRICK_DEPTH / 2  # ✅ FIX CORRIGÉ: Utiliser BRICK_DEPTH pour Y (profondeur)
+        mortar_center_y = mortar_y + mortar_depth / 2  # ✅ FIX CORRIGÉ: Utiliser mortar_depth passé en paramètre!
         mortar_center_z = mortar_z + mortar_height / 2
     except (TypeError, ValueError):
         return False
@@ -1236,17 +1238,19 @@ def calculate_brick_positions_for_wall(wall_length, wall_height, start_pos, dire
             if direction == 'X':
                 pos = start_pos + Vector((distance_along_wall, 0, z))
                 rot = Euler((0, 0, 0), 'XYZ')
-                
-                # Vérifier si dans une ouverture
-                if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
+
+                # ✅ FIX: Passer les bonnes dimensions (X=LENGTH, Y=DEPTH, Z=HEIGHT)
+                # Direction X: brique orientée normalement le long de X
+                if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_DEPTH, BRICK_HEIGHT, openings):
                     continue
-                    
+
             else:  # Y
                 pos = start_pos + Vector((0, distance_along_wall, z))
                 rot = Euler((0, 0, math.radians(90)), 'XYZ')
-                
-                # Vérifier si dans une ouverture
-                if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
+
+                # ✅ FIX: Passer les bonnes dimensions (X=DEPTH, Y=LENGTH, Z=HEIGHT)
+                # Direction Y: brique TOURNÉE 90° donc DEPTH le long de X, LENGTH le long de Y
+                if is_brick_in_opening(pos.x, pos.y, z, BRICK_DEPTH, BRICK_LENGTH, BRICK_HEIGHT, openings):
                     continue
             
             positions.append((pos, rot))
@@ -1289,24 +1293,24 @@ def create_mortar_3d_joints(house_width, house_length, total_height, collection,
         for row in range(num_rows + 1):
             z = row * (BRICK_HEIGHT + MORTAR_GAP) - MORTAR_GAP/2
             
-            # Mur AVANT
+            # Mur AVANT (direction X: width selon X, BRICK_DEPTH selon Y)
             # CORRIGÉ : Vérifier les ouvertures
-            if not is_mortar_in_opening(0, 0, z, house_width, MORTAR_GAP, openings):
+            if not is_mortar_in_opening(0, 0, z, house_width, BRICK_DEPTH, MORTAR_GAP, openings):
                 _add_horizontal_joint(bm, 0, 0, z, house_width, BRICK_DEPTH, MORTAR_GAP)
             joint_count += 1
-            
-            # Mur ARRIÈRE
-            if not is_mortar_in_opening(0, house_length, z, house_width, MORTAR_GAP, openings):
+
+            # Mur ARRIÈRE (direction X: width selon X, BRICK_DEPTH selon Y)
+            if not is_mortar_in_opening(0, house_length, z, house_width, BRICK_DEPTH, MORTAR_GAP, openings):
                 _add_horizontal_joint(bm, 0, house_length - BRICK_DEPTH, z, house_width, BRICK_DEPTH, MORTAR_GAP)
             joint_count += 1
-            
-            # Mur GAUCHE
-            if not is_mortar_in_opening(0, 0, z, BRICK_DEPTH, MORTAR_GAP, openings):
+
+            # Mur GAUCHE (direction Y: BRICK_DEPTH selon X, length selon Y)
+            if not is_mortar_in_opening(0, 0, z, BRICK_DEPTH, house_length, MORTAR_GAP, openings):
                 _add_horizontal_joint(bm, 0, 0, z, BRICK_DEPTH, house_length, MORTAR_GAP)
             joint_count += 1
-            
-            # Mur DROIT
-            if not is_mortar_in_opening(house_width, 0, z, BRICK_DEPTH, MORTAR_GAP, openings):
+
+            # Mur DROIT (direction Y: BRICK_DEPTH selon X, length selon Y)
+            if not is_mortar_in_opening(house_width, 0, z, BRICK_DEPTH, house_length, MORTAR_GAP, openings):
                 _add_horizontal_joint(bm, house_width - BRICK_DEPTH, 0, z, BRICK_DEPTH, house_length, MORTAR_GAP)
             joint_count += 1
         
@@ -1319,14 +1323,14 @@ def create_mortar_3d_joints(house_width, house_length, total_height, collection,
                 z = row * (BRICK_HEIGHT + MORTAR_GAP)
                 
                 if 0 <= x <= house_width:
-                    # Mur AVANT
+                    # Mur AVANT (direction X: width selon X, BRICK_DEPTH selon Y)
                     # CORRIGÉ : Vérifier les ouvertures
-                    if not is_mortar_in_opening(0, 0, z, house_width, MORTAR_GAP, openings):
+                    if not is_mortar_in_opening(0, 0, z, house_width, BRICK_DEPTH, MORTAR_GAP, openings):
                         _add_vertical_joint(bm, x, 0, z, MORTAR_GAP, BRICK_DEPTH, BRICK_HEIGHT)
                     joint_count += 1
-                    
-                    # Mur ARRIÈRE
-                    if not is_mortar_in_opening(0, house_length, z, house_width, MORTAR_GAP, openings):
+
+                    # Mur ARRIÈRE (direction X: width selon X, BRICK_DEPTH selon Y)
+                    if not is_mortar_in_opening(0, house_length, z, house_width, BRICK_DEPTH, MORTAR_GAP, openings):
                         _add_vertical_joint(bm, x, house_length - BRICK_DEPTH, z, MORTAR_GAP, BRICK_DEPTH, BRICK_HEIGHT)
                     joint_count += 1
         
@@ -1338,13 +1342,13 @@ def create_mortar_3d_joints(house_width, house_length, total_height, collection,
                 z = row * (BRICK_HEIGHT + MORTAR_GAP)
                 
                 if 0 <= y <= house_length:
-                    # Mur GAUCHE
-                    if not is_mortar_in_opening(0, 0, z, BRICK_DEPTH, MORTAR_GAP, openings):
+                    # Mur GAUCHE (direction Y: BRICK_DEPTH selon X, length selon Y)
+                    if not is_mortar_in_opening(0, 0, z, BRICK_DEPTH, house_length, MORTAR_GAP, openings):
                         _add_vertical_joint(bm, 0, y, z, BRICK_DEPTH, MORTAR_GAP, BRICK_HEIGHT)
                     joint_count += 1
-                    
-                    # Mur DROIT
-                    if not is_mortar_in_opening(house_width, 0, z, BRICK_DEPTH, MORTAR_GAP, openings):
+
+                    # Mur DROIT (direction Y: BRICK_DEPTH selon X, length selon Y)
+                    if not is_mortar_in_opening(house_width, 0, z, BRICK_DEPTH, house_length, MORTAR_GAP, openings):
                         _add_vertical_joint(bm, house_width - BRICK_DEPTH, y, z, BRICK_DEPTH, MORTAR_GAP, BRICK_HEIGHT)
                     joint_count += 1
         
@@ -1444,9 +1448,9 @@ def generate_brick_wall(width, height, depth=BRICK_DEPTH, quality='MEDIUM', open
             
             if x + BRICK_LENGTH > width + 0.05:
                 continue
-            
+
             # Vérifier si dans une ouverture
-            if is_brick_in_opening(x, y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
+            if is_brick_in_opening(x, y, z, BRICK_LENGTH, depth, BRICK_HEIGHT, openings):
                 continue
             
             if use_variations:
