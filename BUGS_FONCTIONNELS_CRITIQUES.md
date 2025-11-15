@@ -376,9 +376,9 @@ elif part_type == "floor":
 | #1 - Briques disparaissent | 🔴 CRITIQUE | ✅ Confirmé par utilisateur | **Casse système briques 3D** | ✅ **FIXÉ** |
 | #2 - Nettoyage collection | 🟠 MOYEN | ⚠️ Suspect | Fuite mémoire possible | ✅ **FIXÉ** |
 | #3 - Pattern Voronoi | 🟡 MINEUR | ✅ Confirmé (TODO dans code) | Fallback OK | ⚠️ Ouvert |
-| #4 - Fenêtres chevauchent | 🔴 CRITIQUE | ✅ Test mathématique | **Maisons < 4m cassées** | ⚠️ **NOUVEAU** |
-| #5 - Sols étages Z=0 | 🟠 MOYEN | ✅ Code analysé | Sols superposés | ⚠️ **NOUVEAU** |
-| #6 - Matériaux sols effacés | 🟠 MOYEN | ✅ Code analysé | Système avancé inutile | ⚠️ **NOUVEAU** |
+| #4 - Fenêtres chevauchent | 🔴 CRITIQUE | ✅ Test mathématique | **Maisons < 4m cassées** | ✅ **FIXÉ** |
+| #5 - Sols étages Z=0 | 🟠 MOYEN | ✅ Code analysé | Sols superposés | ✅ **FIXÉ** |
+| #6 - Matériaux sols effacés | 🟠 MOYEN | ✅ Code analysé | Système avancé inutile | ✅ **FIXÉ** |
 
 ---
 
@@ -453,17 +453,135 @@ if obj in coll.objects:  # ✅ Plus robuste
 **URGENT (immédiat)**:
 1. ✅ **BUG #1**: FIXÉ - `is_brick_in_opening()` + `is_mortar_in_opening()`
 2. ✅ **BUG #2**: FIXÉ - Nettoyage collection robuste
-3. ⚠️ **BUG #4**: À FIXER - Fenêtres chevauchent sur maisons < 4m
-4. ⚠️ **BUG #5**: À FIXER - Sols étages tous à Z=0
-5. ⚠️ **BUG #6**: À FIXER - Matériaux sols avancés effacés
+3. ✅ **BUG #4**: FIXÉ - Fenêtres chevauchent sur maisons < 4m
+4. ✅ **BUG #5**: FIXÉ - Sols étages tous à Z=0
+5. ✅ **BUG #6**: FIXÉ - Matériaux sols avancés effacés
 
 **OPTIONNEL (plus tard)**:
 6. ⚠️ **BUG #3**: Implémenter pattern Voronoi (TODO ouvert)
 
 ---
 
+### ✅ BUG #4 FIXÉ - Fenêtres se chevauchent sur petites maisons
+
+**Fichiers modifiés**:
+- `operators_auto.py`: Nouvelles lignes 420-486, 586-587, 1186-1187, 1299-1300
+
+**Changements**:
+1. ✅ Nouvelle fonction `_calculate_safe_window_count()` avec 5 niveaux de sécurité:
+   - Sécurité 1: Validation longueur mur (> 0)
+   - Sécurité 2: Calcul mathématique avec espacement minimum (0.5m entre fenêtres)
+   - Sécurité 3: Validation résultat (évite division par zéro)
+   - Sécurité 4: Warnings si maison trop petite + recommandations
+   - Sécurité 5: Logging debug (activable via DEBUG_MODE)
+
+2. ✅ Formule mathématique robuste:
+   ```python
+   # Calcul: n <= (wall_length - 2*edge_spacing + min_spacing) / (window_width + min_spacing)
+   # Garantit: AUCUN chevauchement, espacement minimum respecté
+   ```
+
+3. ✅ Double sécurité anti-régression:
+   - Limite max basée sur ancien système (évite changements brusques)
+   - Vérification espacement réel avec réduction forcée si nécessaire
+
+4. ✅ Intégration dans 3 fonctions:
+   - `_calculate_openings_for_brick_walls()` (murs briques)
+   - `_generate_wall_openings()` (murs simples)
+   - `_generate_windows_complete()` (fenêtres 3D)
+
+**Résultat**:
+- Maison 3m: 1 fenêtre (au lieu de 2 chevauchées de 0.20m)
+- Maison 4m: 1-2 fenêtres selon calcul (espacement ≥ 0.5m garanti)
+- Maison 6m+: 2+ fenêtres (comme avant, aucune régression)
+
+---
+
+### ✅ BUG #5 FIXÉ - Sols positionnés à Z=0
+
+**Fichiers modifiés**:
+- `flooring.py`: Lignes 233, 242-245, 257, 326-329, 400-403
+- `operators_auto.py`: Ligne 799
+
+**Changements**:
+
+**Dans flooring.py** (cohérence avec système simple):
+1. ✅ `_generate_seamless_floor()`: Vertices créés à Z=0 local (au lieu de Z=height)
+2. ✅ `_generate_plank_floor()`: Vertices planches à Z=0 local
+3. ✅ `_generate_tile_floor()`: Vertices dalles à Z=0 local
+4. ✅ Extrusion mise à jour pour référencer Z=0
+
+**Dans operators_auto.py**:
+1. ✅ Ligne 799: `floor_obj.location.z = z_pos` (au lieu de 0)
+2. ✅ Mesh créé à origine locale, objet positionné via location (comme système simple)
+
+**Avant** (bug):
+```python
+# flooring.py
+v1 = bm.verts.new((0, 0, height))  # Mesh à Z=height
+
+# operators_auto.py
+floor_obj.location = (..., ..., 0)  # ❌ Force Z=0
+
+# Résultat: Comportement imprévisible selon Blender
+```
+
+**Après** (fixé):
+```python
+# flooring.py
+v1 = bm.verts.new((0, 0, 0))  # ✅ Mesh à origine locale
+
+# operators_auto.py
+floor_obj.location = (..., ..., z_pos)  # ✅ Position via object.location
+
+# Résultat: Sol RDC à Z=0, Étage 1 à Z=3m, Étage 2 à Z=6m
+```
+
+**Résultat**:
+- Sol RDC: Z=0 ✅
+- Sol Étage 1: Z=3m ✅ (au lieu de Z=0)
+- Sol Étage 2: Z=6m ✅ (au lieu de Z=0)
+
+---
+
+### ✅ BUG #6 FIXÉ - Matériaux sols avancés effacés
+
+**Fichier modifié**:
+- `operators_auto.py`: Lignes 1581-1590
+
+**Changements**:
+1. ✅ Vérification `use_flooring_system` avant d'écraser matériaux
+2. ✅ Logique identique aux murs briques (cohérence du code)
+3. ✅ Système simple: applique couleur unie seulement si pas de matériau existant
+
+**Avant** (bug):
+```python
+elif part_type == "floor":
+    obj.data.materials.clear()  # ❌ TOUJOURS effacer
+    obj.data.materials.append(floor_mat)  # Couleur unie
+```
+
+**Après** (fixé):
+```python
+elif part_type == "floor":
+    if hasattr(props, 'use_flooring_system') and props.use_flooring_system:
+        # ✅ Système avancé: préserver matériaux flooring.py
+        pass
+    else:
+        # ✅ Système simple: couleur unie si vide
+        if len(obj.data.materials) == 0:
+            obj.data.materials.append(floor_mat)
+```
+
+**Résultat**:
+- Système avancé: Matériaux parquet/marbre/carrelage préservés ✅
+- Système simple: Couleur unie appliquée comme avant ✅
+- Cohérence avec logique murs (BRICK_3D vs SIMPLE) ✅
+
+---
+
 **Rapport créé le**: 2025-11-15
-**Mis à jour le**: 2025-11-15 (3 nouveaux bugs trouvés)
+**Mis à jour le**: 2025-11-15 (Bugs #4, #5, #6 fixés)
 **Par**: Claude AI
 **Type**: Analyse bugs fonctionnels RÉELS (testés, pas théoriques)
-**Statut**: 2/6 bugs fixés (33% résolu), 4 bugs à fixer
+**Statut**: 5/6 bugs fixés (83% résolu), 1 bug mineur ouvert (#3)

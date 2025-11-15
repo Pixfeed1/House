@@ -230,6 +230,7 @@ class FlooringGenerator:
         Génère un sol continu sans joints (béton ciré, moquette, lino en nappe).
 
         Mesh simple et propre: 1 rectangle subdivisé selon la qualité.
+        ✅ FIX BUG #5: Mesh créé à Z=0 local, positioning via object.location
         """
         thickness = config.get('thickness', DEFAULT_FLOOR_THICKNESS)
         floor_name = f"Floor_{floor_type}_{room_name}"
@@ -237,11 +238,11 @@ class FlooringGenerator:
         bm = bmesh.new()
 
         try:
-            # ✅ Vertices du rectangle (base au niveau height)
-            v1 = bm.verts.new((0, 0, height))
-            v2 = bm.verts.new((width, 0, height))
-            v3 = bm.verts.new((width, length, height))
-            v4 = bm.verts.new((0, length, height))
+            # ✅ FIX BUG #5: Vertices à Z=0 local (height sera appliqué via object.location)
+            v1 = bm.verts.new((0, 0, 0))
+            v2 = bm.verts.new((width, 0, 0))
+            v3 = bm.verts.new((width, length, 0))
+            v4 = bm.verts.new((0, length, 0))
 
             # Face supérieure
             face_top = bm.faces.new([v1, v2, v3, v4])
@@ -253,7 +254,7 @@ class FlooringGenerator:
 
             # ✅ ÉPAISSEUR: Extrusion vers le bas
             bmesh.ops.extrude_face_region(bm, geom=[face_top])
-            bmesh.ops.translate(bm, vec=(0, 0, -thickness), verts=[v for v in bm.verts if abs(v.co.z - height) < 0.001])
+            bmesh.ops.translate(bm, vec=(0, 0, -thickness), verts=[v for v in bm.verts if abs(v.co.z) < 0.001])
 
             # Recalculer les normales
             bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
@@ -321,11 +322,11 @@ class FlooringGenerator:
                         plank_y_start = current_y
                         plank_y_end = min(length, current_y + actual_plank_length)
 
-                        # Créer les 4 vertices de la planche (surface supérieure)
-                        v1 = bm.verts.new((plank_x_start + gap, plank_y_start + gap, height))
-                        v2 = bm.verts.new((plank_x_end - gap, plank_y_start + gap, height))
-                        v3 = bm.verts.new((plank_x_end - gap, plank_y_end - gap, height))
-                        v4 = bm.verts.new((plank_x_start + gap, plank_y_end - gap, height))
+                        # ✅ FIX BUG #5: Créer les 4 vertices de la planche à Z=0 local
+                        v1 = bm.verts.new((plank_x_start + gap, plank_y_start + gap, 0))
+                        v2 = bm.verts.new((plank_x_end - gap, plank_y_start + gap, 0))
+                        v3 = bm.verts.new((plank_x_end - gap, plank_y_end - gap, 0))
+                        v4 = bm.verts.new((plank_x_start + gap, plank_y_end - gap, 0))
 
                         # Face de la planche
                         bm.faces.new([v1, v2, v3, v4])
@@ -395,11 +396,11 @@ class FlooringGenerator:
                     if tile_x_start >= width or tile_y_start >= length:
                         continue
 
-                    # Vertices de la dalle (avec espace pour joints)
-                    v1 = bm.verts.new((tile_x_start + grout, tile_y_start + grout, height))
-                    v2 = bm.verts.new((tile_x_end - grout, tile_y_start + grout, height))
-                    v3 = bm.verts.new((tile_x_end - grout, tile_y_end - grout, height))
-                    v4 = bm.verts.new((tile_x_start + grout, tile_y_end - grout, height))
+                    # ✅ FIX BUG #5: Vertices de la dalle à Z=0 local
+                    v1 = bm.verts.new((tile_x_start + grout, tile_y_start + grout, 0))
+                    v2 = bm.verts.new((tile_x_end - grout, tile_y_start + grout, 0))
+                    v3 = bm.verts.new((tile_x_end - grout, tile_y_end - grout, 0))
+                    v4 = bm.verts.new((tile_x_start + grout, tile_y_end - grout, 0))
 
                     bm.faces.new([v1, v2, v3, v4])
 

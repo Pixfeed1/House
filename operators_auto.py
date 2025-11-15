@@ -417,9 +417,77 @@ class HOUSE_OT_generate_auto(Operator):
         
         return foundation
     
+    def _calculate_safe_window_count(self, wall_length, dimension_name="largeur"):
+        """✅ FIX BUG #4: Calcule le nombre de fenêtres sans chevauchement
+
+        Sécurité niveau 1: Validation des paramètres d'entrée
+        Sécurité niveau 2: Calcul mathématique avec espacement minimum
+        Sécurité niveau 3: Vérification du résultat (pas de division par zéro)
+        Sécurité niveau 4: Warnings si maison trop petite
+        Sécurité niveau 5: Logging pour debug
+
+        Args:
+            wall_length: Longueur du mur en mètres
+            dimension_name: Nom pour les messages (debug)
+
+        Returns:
+            int: Nombre de fenêtres sécuritaire (1 minimum, jamais de chevauchement)
+        """
+        # === SÉCURITÉ NIVEAU 1: Validation entrées ===
+        if wall_length <= 0:
+            print(f"[House] ⚠️ Longueur mur invalide: {wall_length}m, utilisation 1 fenêtre par défaut")
+            return 1
+
+        # === SÉCURITÉ NIVEAU 2: Calcul avec espacement minimum ===
+        window_width = WINDOW_WIDTH  # 1.2m
+        min_spacing = 0.5  # Espacement minimum entre fenêtres (sécurité architecturale)
+        min_edge_spacing = 0.3  # Espacement minimum depuis les bords
+
+        # Formule: wall_length >= edge_spacing + n*window_width + (n-1)*spacing + edge_spacing
+        # Simplification: wall_length >= 2*edge + n*window_width + (n-1)*spacing
+        # wall_length - 2*edge >= n*window_width + n*spacing - spacing
+        # wall_length - 2*edge + spacing >= n*(window_width + spacing)
+        # n <= (wall_length - 2*edge + spacing) / (window_width + spacing)
+
+        try:
+            available_space = wall_length - 2 * min_edge_spacing + min_spacing
+            max_windows = int(available_space / (window_width + min_spacing))
+        except (ZeroDivisionError, ValueError) as e:
+            print(f"[House] ⚠️ Erreur calcul fenêtres: {e}, utilisation 1 fenêtre")
+            return 1
+
+        # === SÉCURITÉ NIVEAU 3: Validation résultat ===
+        # Minimum absolu: 1 fenêtre
+        # Maximum raisonnable: basé sur l'ancien système (éviter régression)
+        old_system_max = max(2, int(wall_length / WINDOW_SPACING_INTERVAL))
+        safe_count = max(1, min(max_windows, old_system_max))
+
+        # === SÉCURITÉ NIVEAU 4: Warnings si maison trop petite ===
+        if safe_count < 2 and wall_length >= 3.0:
+            print(f"[House] ⚠️ Mur {dimension_name} ({wall_length:.1f}m) trop petit pour 2 fenêtres")
+            print(f"[House]    → 1 fenêtre générée pour éviter chevauchement")
+            print(f"[House]    → Recommandé: {dimension_name} ≥ {2*min_edge_spacing + 2*window_width + min_spacing:.1f}m pour 2 fenêtres")
+
+        # Vérification espacement réel (double sécurité)
+        actual_spacing = wall_length / (safe_count + 1)
+        min_required_space_per_window = window_width + min_spacing
+
+        if actual_spacing < min_required_space_per_window and safe_count > 1:
+            # Réduction forcée si l'espacement calculé est encore trop petit
+            safe_count = max(1, safe_count - 1)
+            print(f"[House] ⚠️ Réduction fenêtres à {safe_count} pour garantir espacement minimum")
+
+        # === SÉCURITÉ NIVEAU 5: Logging (mode production) ===
+        if DEBUG_MODE:
+            print(f"[House] Fenêtres {dimension_name}: {safe_count} pour {wall_length:.1f}m")
+            print(f"[House]    - Espacement: {actual_spacing:.2f}m")
+            print(f"[House]    - Ancien système: {old_system_max}, Nouveau: {safe_count}")
+
+        return safe_count
+
     def _generate_walls(self, context, props, collection):
         """Génère les murs extérieurs (SIMPLE ou BRIQUES 3D) - ULTIMATE"""
-        
+
         # === SI BRIQUES 3D : NOUVEAU SYSTÈME COMPLET ===
         if props.wall_construction_type == 'BRICK_3D':
             print(f"[House] Génération murs en briques 3D (qualité: {props.brick_3d_quality})")
@@ -575,16 +643,16 @@ class HOUSE_OT_generate_auto(Operator):
         """Calcule les positions des ouvertures pour les murs en briques"""
         width = props.house_width
         length = props.house_length
-        
+
         openings = []
-        
+
         # Récupérer window_height_ratio
         style_config = self._apply_architectural_style(props)
         window_height_ratio = style_config.get('window_height_ratio', props.window_height_ratio)
-        
-        # Calculer nombre de fenêtres
-        num_windows_front = max(2, int(width / WINDOW_SPACING_INTERVAL))
-        num_windows_side = max(2, int(length / WINDOW_SPACING_INTERVAL))
+
+        # ✅ FIX BUG #4: Calculer nombre de fenêtres avec validation anti-chevauchement
+        num_windows_front = self._calculate_safe_window_count(width, "largeur")
+        num_windows_side = self._calculate_safe_window_count(length, "longueur")
         
         # PORTE
         door_width = props.front_door_width
@@ -727,8 +795,8 @@ class HOUSE_OT_generate_auto(Operator):
                 )
 
                 if floor_obj:
-                    # Position centrée dans la maison
-                    floor_obj.location = (width/2 - inset_width/2, length/2 - inset_length/2, 0)
+                    # ✅ FIX BUG #5: Position centrée dans la maison avec hauteur correcte
+                    floor_obj.location = (width/2 - inset_width/2, length/2 - inset_length/2, z_pos)
                     collection.objects.link(floor_obj)
                     floors.append(floor_obj)
 
@@ -1111,11 +1179,12 @@ class HOUSE_OT_generate_auto(Operator):
         """Génère les trous dans les murs (Boolean) - pour murs SIMPLES uniquement"""
         width = props.house_width
         length = props.house_length
-        
+
         window_height_ratio = style_config.get('window_height_ratio', props.window_height_ratio)
-        
-        num_windows_front = max(2, int(width / WINDOW_SPACING_INTERVAL))
-        num_windows_side = max(2, int(length / WINDOW_SPACING_INTERVAL))
+
+        # ✅ FIX BUG #4: Utiliser calcul sécurisé pour éviter chevauchement
+        num_windows_front = self._calculate_safe_window_count(width, "largeur")
+        num_windows_side = self._calculate_safe_window_count(length, "longueur")
         
         combined_bm = bmesh.new()
         
@@ -1226,9 +1295,10 @@ class HOUSE_OT_generate_auto(Operator):
         """Génère les fenêtres 3D complètes"""
         width = props.house_width
         length = props.house_length
-        
-        num_windows_front = max(2, int(width / WINDOW_SPACING_INTERVAL))
-        num_windows_side = max(2, int(length / WINDOW_SPACING_INTERVAL))
+
+        # ✅ FIX BUG #4: Utiliser calcul sécurisé pour éviter chevauchement
+        num_windows_front = self._calculate_safe_window_count(width, "largeur")
+        num_windows_side = self._calculate_safe_window_count(length, "longueur")
         
         window_height_ratio = style_config.get('window_height_ratio', props.window_height_ratio)
         window_height = props.floor_height * window_height_ratio
@@ -1508,8 +1578,16 @@ class HOUSE_OT_generate_auto(Operator):
                 obj.data.materials.clear()
                 obj.data.materials.append(roof_mat)
             elif part_type == "floor":
-                obj.data.materials.clear()
-                obj.data.materials.append(floor_mat)
+                # ✅ FIX BUG #6: Respecter matériaux du système avancé (comme pour les murs)
+                # Ne PAS écraser les matériaux si le système de sols avancé est activé
+                if hasattr(props, 'use_flooring_system') and props.use_flooring_system:
+                    # Système avancé activé: les sols ont déjà leurs matériaux détaillés
+                    # Ne rien faire, préserver les matériaux créés par flooring.py
+                    pass
+                else:
+                    # Système simple: appliquer couleur unie seulement si pas de matériau
+                    if len(obj.data.materials) == 0:
+                        obj.data.materials.append(floor_mat)
             elif part_type == "glass":
                 obj.data.materials.clear()
                 obj.data.materials.append(glass_mat)
