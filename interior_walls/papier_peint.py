@@ -110,8 +110,54 @@ class WallPapierPeint(WallFinishBase):
                 obj["texture_path"] = self.image_path
                 obj["texture_resolution"] = f"{self.image_width}×{self.image_height}"
 
+            # ✅ Appliquer le matériau avec texture
+            self._apply_material(obj)
+
             print(f"[WallPapierPeint] ✅ Papier peint {WALLPAPER_TYPES[self.wallpaper_type]['name']} généré")
             return obj
 
         finally:
             bm.free()
+
+    def _apply_material(self, obj):
+        """Applique le matériau de papier peint avec texture image si disponible"""
+        mat_name = f"Material_Wallpaper_{self.wallpaper_type}"
+        mat = bpy.data.materials.new(name=mat_name)
+        mat.use_nodes = True
+
+        nodes = mat.node_tree.nodes
+        links = mat.node_tree.links
+        bsdf = nodes.get("Principled BSDF")
+
+        if bsdf:
+            # Si image valide, créer texture node
+            if self.image_valid and self.image_path:
+                # Charger l'image
+                try:
+                    img = bpy.data.images.load(self.image_path, check_existing=True)
+
+                    # Créer Image Texture node
+                    tex_node = nodes.new(type='ShaderNodeTexImage')
+                    tex_node.image = img
+                    tex_node.location = (-300, 300)
+
+                    # Connecter Image Texture à Base Color
+                    links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
+
+                    print(f"[WallPapierPeint] Texture chargée: {self.image_path}")
+                except Exception as e:
+                    print(f"[WallPapierPeint] ❌ Erreur chargement texture: {e}")
+                    # Fallback: couleur unie beige
+                    bsdf.inputs["Base Color"].default_value = (0.95, 0.93, 0.88, 1.0)
+            else:
+                # Pas d'image: couleur unie beige clair
+                bsdf.inputs["Base Color"].default_value = (0.95, 0.93, 0.88, 1.0)
+
+            # Propriétés communes
+            bsdf.inputs["Roughness"].default_value = 0.7
+            bsdf.inputs["Specular"].default_value = 0.1
+
+        if len(obj.data.materials) == 0:
+            obj.data.materials.append(mat)
+        else:
+            obj.data.materials[0] = mat

@@ -16,6 +16,7 @@ Code HAUTE QUALITÉ.
 import bpy
 import bmesh
 from .base import WallFinishBase, PAINT_THICKNESS
+from .paint_colors import PAINT_COLOR_PRESETS
 
 # Types de peinture
 PAINT_TYPES = {
@@ -64,8 +65,35 @@ class WallPeinture(WallFinishBase):
             obj["paint_type"] = self.paint_type
             obj["color"] = self.color
 
+            # ✅ Appliquer le matériau
+            self._apply_material(obj)
+
             print(f"[WallPeinture] ✅ Peinture {PAINT_TYPES[self.paint_type]['name']} générée")
             return obj
 
         finally:
             bm.free()
+
+    def _apply_material(self, obj):
+        """Applique le matériau de peinture avec la couleur et le type choisis"""
+        mat_name = f"Material_Paint_{self.paint_type}"
+        mat = bpy.data.materials.new(name=mat_name)
+        mat.use_nodes = True
+
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        if bsdf:
+            # Appliquer la couleur
+            bsdf.inputs["Base Color"].default_value = self.color
+
+            # Appliquer les propriétés du type de peinture
+            paint_props = PAINT_TYPES[self.paint_type]
+            bsdf.inputs["Roughness"].default_value = paint_props['roughness']
+            bsdf.inputs["Metallic"].default_value = paint_props['metallic']
+            bsdf.inputs["Specular"].default_value = 0.1
+
+        if len(obj.data.materials) == 0:
+            obj.data.materials.append(mat)
+        else:
+            obj.data.materials[0] = mat
+
+        print(f"[WallPeinture] Matériau appliqué: {paint_props['name']}, couleur RGBA{self.color}")
