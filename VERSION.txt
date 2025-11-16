@@ -1,9 +1,28 @@
-VERSION: 2025-11-16-11:32
-COMMIT: 57f1aa3
-CORRECTIONS:
-- Fix calc_normals() obsolète (commit 0edf6a9)
+VERSION: 2025-11-16-12:15
+COMMIT: ccf2916
+BRANCHE: claude/audit-system-analysis-01L2vNqbCURTqVnFbdy74gbs
+
+CORRECTIONS APPLIQUÉES:
+- Fix calc_normals() obsolète Blender 4.x (commit 0edf6a9)
 - Intégration murs intérieurs avec matériaux (commit 57f1aa3)
 - Intégration sols personnalisés (commit 4945a8a)
+- Fix découpe briques incohérente (commit 3ae435f)
+- Intégration système finitions murales (commit 1525a5f)
+
+DOCUMENTATION AJOUTÉE:
+- LISEZ_MOI_DABORD.md - README principal, commencez ici
+- INSTALLATION_WINDOWS.md - Guide installation étape par étape
+- REPONSE_QUESTION_GIT.md - Explication: branche = tout, pas juste diffs
+- AUDIT_BRANCHE.md - Audit complet de toutes les corrections
+- DIAGNOSTIC_ADDON.py - Script vérification version
+- FORCE_RELOAD_ADDON.py - Script rechargement addon
+- TRACE_ERROR.py - Script trace erreurs
+
+CETTE BRANCHE CONTIENT:
+✅ L'addon COMPLET (tous les fichiers)
+✅ Toutes les corrections appliquées
+✅ Prêt à installer directement
 
 SI VOUS VOYEZ ENCORE L'ERREUR calc_normals():
-L'addon est chargé depuis un AUTRE endroit que /home/user/House
+→ Lisez INSTALLATION_WINDOWS.md
+→ Blender charge probablement depuis AppData au lieu du dossier Git
