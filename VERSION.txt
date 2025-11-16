@@ -1,0 +1,9 @@
+VERSION: 2025-11-16-11:32
+COMMIT: 57f1aa3
+CORRECTIONS:
+- Fix calc_normals() obsolète (commit 0edf6a9)
+- Intégration murs intérieurs avec matériaux (commit 57f1aa3)
+- Intégration sols personnalisés (commit 4945a8a)
+
+SI VOUS VOYEZ ENCORE L'ERREUR calc_normals():
+L'addon est chargé depuis un AUTRE endroit que /home/user/House
