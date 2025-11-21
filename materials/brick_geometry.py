@@ -232,6 +232,85 @@ def generate_walls_with_instancing(
     return walls, real_wall_height
 
 
+def _transform_openings_to_local(openings, wall_type, house_width, house_length):
+    """Transforme les coordonnées des openings du repère global au repère local du mur
+
+    Args:
+        openings (list): Liste des openings en coordonnées globales
+        wall_type (str): 'front', 'back', 'left', 'right'
+        house_width (float): Largeur de la maison
+        house_length (float): Longueur de la maison
+
+    Returns:
+        list: Openings transformés en coordonnées locales du mur
+    """
+    if not openings:
+        return []
+
+    local_openings = []
+
+    for opening in openings:
+        if opening.get('wall') != wall_type:
+            continue
+
+        local_opening = opening.copy()
+
+        # Coordonnées globales
+        global_x = opening['x']
+        global_y = opening['y']
+        global_z = opening['z']
+        width = opening['width']
+        height = opening['height']
+        depth = opening['depth']
+
+        if wall_type == 'front':
+            # Mur avant : pas de transformation (déjà en coordonnées locales)
+            # Le mur est en Y=0, orienté vers +Y
+            local_opening['x'] = global_x
+            local_opening['y'] = global_y
+            local_opening['z'] = global_z
+            local_opening['width'] = width
+            local_opening['depth'] = depth
+
+        elif wall_type == 'back':
+            # Mur arrière : translate Y
+            # Le mur est en Y=house_length, orienté vers -Y
+            local_opening['x'] = global_x
+            local_opening['y'] = 0  # En local, le mur commence à 0
+            local_opening['z'] = global_z
+            local_opening['width'] = width
+            local_opening['depth'] = depth
+
+        elif wall_type == 'left':
+            # Mur gauche : rotation 90° sens horaire
+            # Le mur est en X=0, orienté vers +X
+            # En global: x=0, y=opening_y
+            # En local: x=opening_y, y=0
+            local_opening['x'] = global_y
+            local_opening['y'] = 0
+            local_opening['z'] = global_z
+            # Width et depth sont swappés car le mur est tourné
+            local_opening['width'] = depth  # Ce qui était depth devient width
+            local_opening['depth'] = width  # Ce qui était width devient depth
+
+        elif wall_type == 'right':
+            # Mur droit : rotation 90° sens horaire + translate X
+            # Le mur est en X=house_width, orienté vers -X
+            # En global: x=house_width, y=opening_y
+            # En local: x=opening_y, y=0
+            local_opening['x'] = global_y
+            local_opening['y'] = 0
+            local_opening['z'] = global_z
+            # Width et depth sont swappés car le mur est tourné
+            local_opening['width'] = depth
+            local_opening['depth'] = width
+
+        local_openings.append(local_opening)
+        print(f"[BrickGeometry]   Transform {wall_type}: global({global_x:.2f},{global_y:.2f},{global_z:.2f}) -> local({local_opening['x']:.2f},{local_opening['y']:.2f},{local_opening['z']:.2f})")
+
+    return local_openings
+
+
 def generate_walls_full_geometry(
     house_width,
     house_length,
@@ -251,12 +330,14 @@ def generate_walls_full_geometry(
     """
 
     walls = []
-    
+
     # === MUR AVANT (FAÇADE) ===
     print("[BrickGeometry] Mur avant (façade)...")
+    # ✅ FIX: Transformer les openings en coordonnées locales du mur
+    front_openings = _transform_openings_to_local(openings, 'front', house_width, house_length)
     wall_front_bricks, wall_front_mortar = generate_brick_wall(
         house_width, total_height, BRICK_DEPTH, quality,
-        openings=[o for o in (openings or []) if o.get('wall') == 'front']
+        openings=front_openings
     )
     wall_front_bricks.name = "Wall_Front_Bricks"
     wall_front_mortar.name = "Wall_Front_Mortar"
@@ -284,9 +365,11 @@ def generate_walls_full_geometry(
     
     # === MUR ARRIÈRE ===
     print("[BrickGeometry] Mur arrière...")
+    # ✅ FIX: Transformer les openings en coordonnées locales du mur
+    back_openings = _transform_openings_to_local(openings, 'back', house_width, house_length)
     wall_back_bricks, wall_back_mortar = generate_brick_wall(
         house_width, total_height, BRICK_DEPTH, quality,
-        openings=[o for o in (openings or []) if o.get('wall') == 'back']
+        openings=back_openings
     )
     wall_back_bricks.name = "Wall_Back_Bricks"
     wall_back_mortar.name = "Wall_Back_Mortar"
@@ -314,9 +397,11 @@ def generate_walls_full_geometry(
     
     # === MUR GAUCHE ===
     print("[BrickGeometry] Mur gauche...")
+    # ✅ FIX: Transformer les openings en coordonnées locales du mur
+    left_openings = _transform_openings_to_local(openings, 'left', house_width, house_length)
     wall_left_bricks, wall_left_mortar = generate_brick_wall(
         house_length, total_height, BRICK_DEPTH, quality,
-        openings=[o for o in (openings or []) if o.get('wall') == 'left']
+        openings=left_openings
     )
     wall_left_bricks.name = "Wall_Left_Bricks"
     wall_left_mortar.name = "Wall_Left_Mortar"
@@ -344,9 +429,11 @@ def generate_walls_full_geometry(
     
     # === MUR DROIT ===
     print("[BrickGeometry] Mur droit...")
+    # ✅ FIX: Transformer les openings en coordonnées locales du mur
+    right_openings = _transform_openings_to_local(openings, 'right', house_width, house_length)
     wall_right_bricks, wall_right_mortar = generate_brick_wall(
         house_length, total_height, BRICK_DEPTH, quality,
-        openings=[o for o in (openings or []) if o.get('wall') == 'right']
+        openings=right_openings
     )
     wall_right_bricks.name = "Wall_Right_Bricks"
     wall_right_mortar.name = "Wall_Right_Mortar"
