@@ -29,11 +29,11 @@ from abc import ABC, abstractmethod
 # CONSTANTES FINITIONS MURALES
 # ============================================================
 
-# Dimensions limites
-MIN_WALL_WIDTH = 0.5         # 50cm largeur minimum
-MAX_WALL_WIDTH = 15.0        # 15m largeur maximum
-MIN_WALL_HEIGHT = 2.0        # 2m hauteur minimum
-MAX_WALL_HEIGHT = 4.0        # 4m hauteur maximum
+# Dimensions limites (assouplies pour toutes configurations)
+MIN_WALL_WIDTH = 0.1         # 10cm largeur minimum (très permissif)
+MAX_WALL_WIDTH = 20.0        # 20m largeur maximum
+MIN_WALL_HEIGHT = 0.5        # 0.5m hauteur minimum (très permissif)
+MAX_WALL_HEIGHT = 10.0       # 10m hauteur maximum (immeubles)
 
 # Épaisseurs finitions (ajoutées au mur de base)
 PAINT_THICKNESS = 0.0002     # 0.2mm peinture (négligeable)
