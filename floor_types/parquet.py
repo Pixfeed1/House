@@ -123,14 +123,15 @@ class ParquetProceduralGenerator:
         plank_w = self.plank_width + self.gap
         plank_l = self.plank_length + self.gap
 
-        # +2 pour marge de sécurité - le Boolean clippera ce qui dépasse
-        rows = int(math.ceil(self.floor_width / plank_w)) + 2
+        # +1 pour marge de sécurité - le Boolean clippera ce qui dépasse
+        rows = int(math.ceil(self.floor_width / plank_w)) + 1
 
         for row in range(rows):
             x = row * plank_w + self.plank_width / 2
 
-            # Permettre aux lames de dépasser légèrement (Boolean les clippera)
-            if x - self.plank_width / 2 > self.floor_width + self.plank_width:
+            # Permettre aux lames de dépasser très légèrement (Boolean les clippera)
+            # LIMITE RÉDUITE pour éviter l'effet "tétris"
+            if x - self.plank_width / 2 > self.floor_width + self.plank_width * 0.5:
                 continue
 
             # Décalage 1/3 (pose anglaise classique)
@@ -188,7 +189,8 @@ class ParquetProceduralGenerator:
                 px = x + v_width / 2
                 py = base_y + v_height / 2
 
-                if px < self.floor_width / 2 + plank_l and py < self.floor_length + plank_l:
+                # LIMITE RÉDUITE pour éviter l'effet "tétris"
+                if px < self.floor_width / 2 + plank_l * 0.5 and py < self.floor_length + plank_l * 0.5:
                     self.create_plank(
                         bm, px, py, 0,
                         self.plank_width, plank_l, self.plank_thickness,
@@ -203,7 +205,8 @@ class ParquetProceduralGenerator:
                 px = self.floor_width - x - v_width / 2
                 py = base_y + v_height / 2
 
-                if px > -plank_l and py < self.floor_length + plank_l:
+                # LIMITE RÉDUITE pour éviter l'effet "tétris"
+                if px > -plank_l * 0.5 and py < self.floor_length + plank_l * 0.5:
                     self.create_plank(
                         bm, px, py, 0,
                         self.plank_width, plank_l, self.plank_thickness,
@@ -233,7 +236,8 @@ class ParquetProceduralGenerator:
                 px1 = base_x + self.plank_length / 2
                 py1 = base_y + self.plank_width / 2
 
-                if px1 < self.floor_width + plank_l and py1 < self.floor_length + plank_w:
+                # LIMITE RÉDUITE pour éviter l'effet "tétris"
+                if px1 < self.floor_width + plank_l * 0.5 and py1 < self.floor_length + plank_w * 0.5:
                     self.create_plank(
                         bm, px1, py1, 0,
                         self.plank_width, self.plank_length, self.plank_thickness,
@@ -244,7 +248,8 @@ class ParquetProceduralGenerator:
                 px2 = base_x + self.plank_width / 2 + self.plank_length
                 py2 = base_y + self.plank_length / 2
 
-                if px2 < self.floor_width + plank_w and py2 < self.floor_length + plank_l:
+                # LIMITE RÉDUITE pour éviter l'effet "tétris"
+                if px2 < self.floor_width + plank_w * 0.5 and py2 < self.floor_length + plank_l * 0.5:
                     self.create_plank(
                         bm, px2, py2, 0,
                         self.plank_width, self.plank_length, self.plank_thickness,
@@ -332,11 +337,11 @@ class ParquetMassif(FloorTypeBase):
         bpy.context.collection.objects.link(obj)
         bpy.context.view_layer.objects.active = obj
 
-        # Appliquer Boolean
+        # Appliquer Boolean (EXACT solver pour meilleure précision)
         bool_mod = obj.modifiers.new("Boolean", 'BOOLEAN')
         bool_mod.operation = 'INTERSECT'
         bool_mod.object = cutter
-        bool_mod.solver = 'FAST'
+        bool_mod.solver = 'EXACT'  # Plus précis que FAST, évite l'effet "tétris"
 
         # Appliquer le modificateur
         bpy.context.view_layer.update()
@@ -431,10 +436,11 @@ class ParquetContrecolle(FloorTypeBase):
         bpy.context.collection.objects.link(obj)
         bpy.context.view_layer.objects.active = obj
 
+        # Appliquer Boolean (EXACT solver pour meilleure précision)
         bool_mod = obj.modifiers.new("Boolean", 'BOOLEAN')
         bool_mod.operation = 'INTERSECT'
         bool_mod.object = cutter
-        bool_mod.solver = 'FAST'
+        bool_mod.solver = 'EXACT'  # Plus précis que FAST, évite l'effet "tétris"
 
         bpy.context.view_layer.update()
         bpy.ops.object.modifier_apply(modifier="Boolean")
@@ -529,10 +535,11 @@ class Stratifie(FloorTypeBase):
         bpy.context.collection.objects.link(obj)
         bpy.context.view_layer.objects.active = obj
 
+        # Appliquer Boolean (EXACT solver pour meilleure précision)
         bool_mod = obj.modifiers.new("Boolean", 'BOOLEAN')
         bool_mod.operation = 'INTERSECT'
         bool_mod.object = cutter
-        bool_mod.solver = 'FAST'
+        bool_mod.solver = 'EXACT'  # Plus précis que FAST, évite l'effet "tétris"
 
         bpy.context.view_layer.update()
         bpy.ops.object.modifier_apply(modifier="Boolean")

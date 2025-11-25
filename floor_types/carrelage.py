@@ -47,14 +47,16 @@ class CarrelageCeramique(FloorTypeBase):
             # ✅ FIX Blender 4.2: "Specular" n'existe plus
 
             try:
-
                 bsdf.inputs["Specular"].default_value = 0.6
-
             except KeyError:
-
                 pass
-            # Légère brillance pour effet céramique
-            bsdf.inputs["Sheen"].default_value = 0.1
+
+            # Légère brillance pour effet céramique (Blender 4.2 compatible)
+            try:
+                bsdf.inputs["Sheen"].default_value = 0.1
+            except KeyError:
+                # Sheen n'existe plus dans Blender 4.2+
+                pass
 
         if len(obj.data.materials) == 0:
             obj.data.materials.append(mat)
@@ -99,15 +101,16 @@ class GresCerame(FloorTypeBase):
             bsdf.inputs["Base Color"].default_value = tile_props['color']
             bsdf.inputs["Roughness"].default_value = tile_props['roughness']
             # ✅ FIX Blender 4.2: "Specular" n'existe plus
-
             try:
-
                 bsdf.inputs["Specular"].default_value = 0.7
-
             except KeyError:
-
                 pass
-            bsdf.inputs["Metallic"].default_value = 0.05
+
+            # Léger effet métallique (Blender 4.2 compatible)
+            try:
+                bsdf.inputs["Metallic"].default_value = 0.05
+            except KeyError:
+                pass
 
         if len(obj.data.materials) == 0:
             obj.data.materials.append(mat)

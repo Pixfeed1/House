@@ -31,17 +31,18 @@ class Moquette(FloorTypeBase):
             bsdf.inputs["Base Color"].default_value = (0.82, 0.75, 0.68, 1.0)
             bsdf.inputs["Roughness"].default_value = 0.9  # Très mate
             # ✅ FIX Blender 4.2: "Specular" n'existe plus
-
             try:
-
                 bsdf.inputs["Specular"].default_value = 0.05  # Presque pas de reflet
-
             except KeyError:
-
                 pass
-            # Ajout de velours/duvet
-            bsdf.inputs["Sheen"].default_value = 0.5
-            bsdf.inputs["Sheen Tint"].default_value = 0.3
+
+            # Ajout de velours/duvet (Blender 4.2 compatible)
+            try:
+                bsdf.inputs["Sheen"].default_value = 0.5
+                bsdf.inputs["Sheen Tint"].default_value = 0.3
+            except KeyError:
+                # Sheen n'existe plus dans Blender 4.2+
+                pass
 
         if len(obj.data.materials) == 0:
             obj.data.materials.append(mat)
