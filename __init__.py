@@ -42,6 +42,7 @@ from . import (
     operators_auto,
     operators_manual,
     utils,
+    window_geometry_nodes,  # Système procédural de fenêtres
 )
 
 # Liste des modules à recharger (pour le développement)
@@ -53,6 +54,7 @@ modules = [
     operators_auto,
     operators_manual,
     utils,
+    window_geometry_nodes,
 ]
 
 # Classes à enregistrer
@@ -84,6 +86,7 @@ def register():
     materials.register()
     ui_panels.register()
     utils.register()
+    window_geometry_nodes.register()
     
     # Collecter et enregistrer les classes des opérateurs
     register_classes()
@@ -107,6 +110,7 @@ def unregister():
             print(f"[House] Erreur lors du désenregistrement de {cls}: {e}")
     
     # Désenregistrer les modules dans l'ordre inverse
+    window_geometry_nodes.unregister()
     utils.unregister()
     ui_panels.unregister()
     materials.unregister()

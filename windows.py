@@ -10,6 +10,14 @@ import bmesh
 from mathutils import Vector, Matrix
 import math
 
+# Import du système geometry nodes
+try:
+    from . import window_geometry_nodes as geonodes
+    GEONODES_AVAILABLE = True
+except ImportError:
+    GEONODES_AVAILABLE = False
+    print("[Windows] Geometry Nodes non disponibles, utilisation du système bmesh")
+
 # Constantes - Normes européennes pour fenêtres réalistes
 FRAME_DEPTH = 0.07          # 70mm - Profondeur du dormant (standard EN)
 GLASS_THICKNESS = 0.02      # 20mm - Double vitrage simplifié
@@ -19,22 +27,30 @@ SILL_DEPTH = 0.04           # 40mm - Débord de l'appui
 
 class WindowGenerator:
     """Générateur de fenêtres architecturales réalistes et optimisées
-    
+
     Version ULTIMATE avec :
     - Système de qualité LOW/MEDIUM/HIGH
     - Chanfreins automatiques pour réalisme
     - Matériaux procéduraux intégrés (PBR)
+    - Support Geometry Nodes (procédural et performant)
     """
-    
-    def __init__(self, quality='MEDIUM'):
+
+    def __init__(self, quality='MEDIUM', use_geonodes=True):
         """Initialise le générateur avec un niveau de qualité
-        
+
         Args:
             quality (str): 'LOW', 'MEDIUM', ou 'HIGH'
+            use_geonodes (bool): Utiliser Geometry Nodes si disponible (recommandé)
         """
         self.quality = quality
+        self.use_geonodes = use_geonodes and GEONODES_AVAILABLE
         self.frame_depth = FRAME_DEPTH
         self.glass_thickness = GLASS_THICKNESS
+
+        if self.use_geonodes:
+            print(f"[Windows] Mode: Geometry Nodes (performant et procédural)")
+        else:
+            print(f"[Windows] Mode: BMesh (classique)")
         
         # Paramètres adaptatifs selon la qualité
         if quality == 'LOW':
@@ -63,7 +79,7 @@ class WindowGenerator:
     
     def generate_window(self, window_type, width, height, location, orientation, collection):
         """Point d'entrée principal pour générer une fenêtre complète
-        
+
         Args:
             window_type (str): Type de fenêtre (CASEMENT, SLIDING, FIXED)
             width (float): Largeur de l'ouverture
@@ -71,16 +87,37 @@ class WindowGenerator:
             location (Vector): Position dans l'espace
             orientation (str): Orientation du mur (front, back, left, right)
             collection: Collection Blender où ajouter les objets
-            
+
         Returns:
             list: Liste des objets créés (cadre + verre)
         """
-        
+
         # Validation
         if width <= 0 or height <= 0:
             print(f"[Windows] Dimensions invalides: {width}x{height}")
             return []
-        
+
+        # === MODE GEOMETRY NODES (RECOMMANDÉ) ===
+        if self.use_geonodes:
+            try:
+                objects = geonodes.create_window_with_geonodes(
+                    window_type, width, height, location, orientation, collection
+                )
+
+                # Appliquer les matériaux
+                if len(objects) >= 2:
+                    geonodes.apply_frame_material_geonodes(objects[0])
+                    geonodes.apply_glass_material_geonodes(objects[1])
+
+                return objects
+
+            except Exception as e:
+                print(f"[Windows] Erreur Geometry Nodes: {e}, fallback vers bmesh")
+                import traceback
+                traceback.print_exc()
+                # Continuer avec bmesh en cas d'erreur
+
+        # === MODE BMESH (CLASSIQUE) ===
         try:
             # Créer la fenêtre selon le type
             if window_type == 'CASEMENT':
