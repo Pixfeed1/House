@@ -412,11 +412,14 @@ class HOUSE_OT_finalize_manual(Operator):
         floor.scale = (width/2, length/2, thickness/2)
         
         bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-        
+
         # Ajouter à la collection
-        if floor not in collection.objects:  # ✅ FIX: obj au lieu de obj.name
+        # ✅ FIX: Ne pas tester, juste essayer de link avec try/except
+        try:
             collection.objects.link(floor)
             context.scene.collection.objects.unlink(floor)
+        except RuntimeError:
+            pass  # Déjà dans la collection
     
     def _create_simple_roof(self, context, props, collection, walls):
         """Crée un toit simple basé sur l'emprise des murs"""
@@ -447,11 +450,14 @@ class HOUSE_OT_finalize_manual(Operator):
         roof.scale = ((width + 1)/2, (length + 1)/2, thickness/2)  # +1m de débord
         
         bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-        
+
         # Ajouter à la collection
-        if roof not in collection.objects:  # ✅ FIX: obj au lieu de obj.name
+        # ✅ FIX: Ne pas tester, juste essayer de link avec try/except
+        try:
             collection.objects.link(roof)
             context.scene.collection.objects.unlink(roof)
+        except RuntimeError:
+            pass  # Déjà dans la collection
     
     def _apply_materials(self, context, props, collection):
         """Applique les matériaux aux objets de la collection"""

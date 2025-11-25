@@ -64,11 +64,15 @@ def create_box(name, location, dimensions, collection=None):
     
     # Appliquer l'échelle
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    
+
     # Déplacer vers la collection si spécifiée
-    if collection and obj not in collection.objects:  # ✅ FIX: obj au lieu de obj.name
-        collection.objects.link(obj)
-        bpy.context.scene.collection.objects.unlink(obj)
+    # ✅ FIX: Ne pas tester, juste essayer de link avec try/except
+    if collection:
+        try:
+            collection.objects.link(obj)
+            bpy.context.scene.collection.objects.unlink(obj)
+        except RuntimeError:
+            pass  # Déjà dans la collection
     
     return obj
 

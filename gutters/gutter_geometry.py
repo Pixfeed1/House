@@ -411,8 +411,11 @@ def generate_gutters_for_house(
     # Ajouter les objets à la collection
     if collection:
         for obj in objects:
-            if obj not in collection.objects:
+            # ✅ FIX: Ne pas tester, juste essayer de link avec try/except
+            try:
                 collection.objects.link(obj)
+            except RuntimeError:
+                pass  # Déjà dans la collection
     else:
         # Ajouter à la scène
         for obj in objects:
