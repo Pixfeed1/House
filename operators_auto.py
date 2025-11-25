@@ -354,7 +354,7 @@ class HOUSE_OT_generate_auto(Operator):
         """Crée une collection pour la maison"""
         collection_name = "House"
 
-        if collection_name in bpy.data.collections:
+        if bpy.data.collections.get(collection_name):
             collection = bpy.data.collections[collection_name]
             for obj in list(collection.objects):
                 # Unlink from all collections before removing (Blender 4.2 compatibility)
@@ -1750,7 +1750,7 @@ class HOUSE_OT_generate_auto(Operator):
         total_height = props.num_floors * props.floor_height
 
         # Lumière principale (soleil)
-        if "Sun" not in bpy.data.lights:
+        if not bpy.data.lights.get("Sun"):
             sun_data = bpy.data.lights.new(name="Sun", type='SUN')
             sun_data.energy = 2.0
             sun_object = bpy.data.objects.new(name="Sun", object_data=sun_data)
@@ -1759,7 +1759,7 @@ class HOUSE_OT_generate_auto(Operator):
             sun_object.rotation_euler = (0.785, 0, 0.785)  # 45 degrés
 
         # Lumière d'appoint (point light)
-        if "House_Light" not in bpy.data.lights:
+        if not bpy.data.lights.get("House_Light"):
             light_data = bpy.data.lights.new(name="House_Light", type='POINT')
             light_data.energy = 500.0
             light_data.shadow_soft_size = 2.0
@@ -1816,7 +1816,7 @@ class HOUSE_OT_generate_auto(Operator):
     
     def _get_or_create_material(self, name, color):
         """Crée ou récupère un matériau"""
-        if name in bpy.data.materials:
+        if bpy.data.materials.get(name):
             mat = bpy.data.materials[name]
         else:
             mat = bpy.data.materials.new(name=name)
@@ -1842,7 +1842,7 @@ class HOUSE_OT_generate_auto(Operator):
     
     def _get_or_create_glass_material(self, name):
         """Crée ou récupère le matériau verre"""
-        if name in bpy.data.materials:
+        if bpy.data.materials.get(name):
             return bpy.data.materials[name]
         
         mat = bpy.data.materials.new(name=name)

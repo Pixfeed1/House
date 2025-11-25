@@ -55,7 +55,7 @@ def get_procedural_material(preset_id):
     material_name = f"Brick_{preset_id}_Ultimate"
     
     # Vérifier si le matériau existe déjà
-    if material_name in bpy.data.materials:
+    if bpy.data.materials.get(material_name):
         print(f"[House] ♻️ Matériau {material_name} déjà existant (cache)")
         return bpy.data.materials[material_name]
     
@@ -88,7 +88,7 @@ def clear_material_cache():
     count = 0
     for preset_id in PRESET_FUNCTIONS.keys():
         material_name = f"Brick_{preset_id}_Ultimate"
-        if material_name in bpy.data.materials:
+        if bpy.data.materials.get(material_name):
             bpy.data.materials.remove(bpy.data.materials[material_name])
             count += 1
     

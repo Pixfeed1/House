@@ -77,11 +77,14 @@ class HOUSE_OT_add_wall(Operator):
         bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
         
         # Ajouter à la collection House si elle existe
-        if "House" in bpy.data.collections:
+        if bpy.data.collections.get("House"):
             collection = bpy.data.collections["House"]
-            if wall not in collection.objects:  # ✅ FIX: obj au lieu de obj.name
+            # ✅ FIX: Ne pas tester, juste link avec try/except
+            try:
                 collection.objects.link(wall)
                 context.scene.collection.objects.unlink(wall)
+            except RuntimeError:
+                pass  # Déjà dans la collection
         
         self.report({'INFO'}, f"Mur créé: longueur {length:.2f}m")
         return {'FINISHED'}
@@ -170,13 +173,15 @@ class HOUSE_OT_add_door(Operator):
             door.display_type = 'WIRE'
 
         bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-        
+
         # Ajouter à la collection House
-        if "House" in bpy.data.collections:
+        if bpy.data.collections.get("House"):
             collection = bpy.data.collections["House"]
-            if door not in collection.objects:  # ✅ FIX: obj au lieu de obj.name
+            try:
                 collection.objects.link(door)
                 context.scene.collection.objects.unlink(door)
+            except RuntimeError:
+                pass  # Déjà dans la collection
         
         self.report({'INFO'}, "Porte ajoutée")
         return {'FINISHED'}
@@ -225,13 +230,15 @@ class HOUSE_OT_add_window(Operator):
             window.display_type = 'WIRE'
 
         bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-        
+
         # Ajouter à la collection House
-        if "House" in bpy.data.collections:
+        if bpy.data.collections.get("House"):
             collection = bpy.data.collections["House"]
-            if window not in collection.objects:  # ✅ FIX: obj au lieu de obj.name
+            try:
                 collection.objects.link(window)
                 context.scene.collection.objects.unlink(window)
+            except RuntimeError:
+                pass  # Déjà dans la collection
         
         self.report({'INFO'}, "Fenêtre ajoutée")
         return {'FINISHED'}
@@ -264,7 +271,7 @@ class HOUSE_OT_import_plan(Operator):
             empty.name = "Plan_Reference"
             
             # Charger l'image
-            if props.plan_image_path in bpy.data.images:
+            if bpy.data.images.get(props.plan_image_path):
                 img = bpy.data.images[props.plan_image_path]
             else:
                 img = bpy.data.images.load(props.plan_image_path)
@@ -282,11 +289,13 @@ class HOUSE_OT_import_plan(Operator):
             empty.rotation_euler.x = math.radians(90)
             
             # Ajouter à la collection House
-            if "House" in bpy.data.collections:
+            if bpy.data.collections.get("House"):
                 collection = bpy.data.collections["House"]
-                if empty not in collection.objects:  # ✅ FIX: obj au lieu de obj.name
+                try:
                     collection.objects.link(empty)
                     context.scene.collection.objects.unlink(empty)
+                except RuntimeError:
+                    pass  # Déjà dans la collection
             
             self.report({'INFO'}, "Plan importé avec succès")
             return {'FINISHED'}
@@ -328,7 +337,7 @@ class HOUSE_OT_finalize_manual(Operator):
         props = context.scene.house_props
         
         # Récupérer tous les objets de la collection House
-        if "House" not in bpy.data.collections:
+        if not bpy.data.collections.get("House"):
             self.report({'WARNING'}, "Aucune maison à finaliser")
             return {'CANCELLED'}
         
@@ -461,7 +470,7 @@ class HOUSE_OT_finalize_manual(Operator):
     
     def _create_material(self, name, color):
         """Crée un matériau simple"""
-        if name in bpy.data.materials:
+        if bpy.data.materials.get(name):
             mat = bpy.data.materials[name]
         else:
             mat = bpy.data.materials.new(name=name)
@@ -501,7 +510,7 @@ class HOUSE_OT_generate_from_plan(Operator):
             return {'CANCELLED'}
 
         # Récupérer tous les murs manuels de la collection House
-        if "House" not in bpy.data.collections:
+        if not bpy.data.collections.get("House"):
             self.report({'WARNING'}, "Aucune construction manuelle trouvée")
             return {'CANCELLED'}
 

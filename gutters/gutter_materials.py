@@ -29,7 +29,7 @@ def create_gutter_material(material_type='ALUMINUM', style='MODERN', quality='ME
     mat_name = f"Gutter_{material_type}_{style}"
 
     # Vérifier si le matériau existe déjà
-    if mat_name in bpy.data.materials:
+    if bpy.data.materials.get(mat_name):
         return bpy.data.materials[mat_name]
 
     # Créer nouveau matériau
@@ -205,7 +205,7 @@ def create_painted_gutter_material(color=(1.0, 1.0, 1.0, 1.0), style='MODERN'):
 
     mat_name = f"Gutter_Painted_{int(color[0]*255)}_{int(color[1]*255)}_{int(color[2]*255)}"
 
-    if mat_name in bpy.data.materials:
+    if bpy.data.materials.get(mat_name):
         return bpy.data.materials[mat_name]
 
     mat = bpy.data.materials.new(name=mat_name)

@@ -49,7 +49,7 @@ def create_brick_3d_material(preset_id, custom_color=None):
     if preset_id == 'BRICK_PAINTED' and custom_color:
         mat_name = f"Brick_Painted_{custom_color[0]:.2f}_{custom_color[1]:.2f}_{custom_color[2]:.2f}"
         
-        if mat_name in bpy.data.materials:
+        if bpy.data.materials.get(mat_name):
             return bpy.data.materials[mat_name]
         
         # Créer un matériau simple coloré
@@ -78,7 +78,7 @@ def create_brick_3d_material(preset_id, custom_color=None):
             print(f"[House] ⚠️ Preset '{preset_id}' non trouvé, utilisation du rouge par défaut")
             
             mat_name = f"Brick_Default_Red"
-            if mat_name in bpy.data.materials:
+            if bpy.data.materials.get(mat_name):
                 return bpy.data.materials[mat_name]
             
             mat = bpy.data.materials.new(name=mat_name)

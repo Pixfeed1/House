@@ -535,7 +535,7 @@ def create_brick_material_solid_color(color):
     
     mat_name = f"Brick_SolidColor_{int(rgba_color[0]*255)}_{int(rgba_color[1]*255)}_{int(rgba_color[2]*255)}"
     
-    if mat_name in bpy.data.materials:
+    if bpy.data.materials.get(mat_name):
         return bpy.data.materials[mat_name]
     
     mat = bpy.data.materials.new(name=mat_name)
@@ -580,7 +580,7 @@ def create_brick_material_pbr_textured(preset_name='BRICK_WORN_PBR'):
     mat_name = f"Brick_PBR_{preset_name}"
     
     # Vérifier si existe déjà
-    if mat_name in bpy.data.materials:
+    if bpy.data.materials.get(mat_name):
         return bpy.data.materials[mat_name]
     
     print(f"\n[BrickPBR] Création matériau PBR: {preset_name}")
@@ -808,7 +808,7 @@ def create_mortar_material():
     mat_name = "Mortar_Material"
 
     # Vérifier si déjà existant (cache)
-    if mat_name in bpy.data.materials:
+    if bpy.data.materials.get(mat_name):
         return bpy.data.materials[mat_name]
 
     # Créer nouveau matériau

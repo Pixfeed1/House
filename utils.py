@@ -190,7 +190,7 @@ def create_simple_material(name, base_color, roughness=0.7, metallic=0.0):
     Returns:
         bpy.types.Material: Le matériau créé
     """
-    if name in bpy.data.materials:
+    if bpy.data.materials.get(name):
         mat = bpy.data.materials[name]
     else:
         mat = bpy.data.materials.new(name=name)
@@ -237,7 +237,7 @@ def create_material_with_texture(name, texture_path, base_color=(1, 1, 1)):
     Returns:
         bpy.types.Material: Le matériau créé
     """
-    if name in bpy.data.materials:
+    if bpy.data.materials.get(name):
         mat = bpy.data.materials[name]
     else:
         mat = bpy.data.materials.new(name=name)
@@ -261,7 +261,7 @@ def create_material_with_texture(name, texture_path, base_color=(1, 1, 1)):
     
     # Charger la texture
     try:
-        if texture_path in bpy.data.images:
+        if bpy.data.images.get(texture_path):
             img = bpy.data.images[texture_path]
         else:
             img = bpy.data.images.load(texture_path)
@@ -291,7 +291,7 @@ def get_or_create_collection(name, parent=None):
     Returns:
         bpy.types.Collection: La collection
     """
-    if name in bpy.data.collections:
+    if bpy.data.collections.get(name):
         collection = bpy.data.collections[name]
     else:
         collection = bpy.data.collections.new(name)
@@ -327,7 +327,7 @@ def delete_collection(name, delete_objects=True):
         name (str): Nom de la collection
         delete_objects (bool): Supprimer aussi les objets dedans
     """
-    if name not in bpy.data.collections:
+    if not bpy.data.collections.get(name):
         return
 
     collection = bpy.data.collections[name]
@@ -487,7 +487,7 @@ def safe_delete_object(obj):
     Args:
         obj (bpy.types.Object): Objet à supprimer
     """
-    if obj and obj.name in bpy.data.objects:
+    if obj and bpy.data.objects.get(obj.name):
         # Unlink from all collections before removing (Blender 4.2 compatibility)
         for coll in bpy.data.collections:
             # ✅ FIX: Essayer de unlink directement sans test, try/except gère les erreurs
