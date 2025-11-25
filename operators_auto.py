@@ -359,14 +359,13 @@ class HOUSE_OT_generate_auto(Operator):
             for obj in list(collection.objects):
                 # Unlink from all collections before removing (Blender 4.2 compatibility)
                 for coll in bpy.data.collections:
-                    # ✅ FIX BUG #2: Utiliser `obj in coll.objects` au lieu de `obj.name in coll.objects`
-                    # bpy_prop_collection supporte les deux mais `in` avec objet est plus robuste
-                    if obj in coll.objects:
-                        try:
-                            coll.objects.unlink(obj)
-                        except (RuntimeError, ReferenceError) as e:
-                            # Objet déjà unlinked ou invalide, continuer
-                            print(f"[House] ⚠️ Impossible de unlink {obj.name}: {e}")
+                    # ✅ FIX: Essayer de unlink directement, le try/except gère si l'objet n'est pas dans la collection
+                    # Ne pas utiliser `if obj in coll.objects:` car ça cause une erreur dans Blender 4.2+
+                    try:
+                        coll.objects.unlink(obj)
+                    except (RuntimeError, ReferenceError) as e:
+                        # Objet pas dans cette collection, ou déjà unlinked, ou invalide
+                        pass
                 bpy.data.objects.remove(obj, do_unlink=True)
         else:
             collection = bpy.data.collections.new(collection_name)

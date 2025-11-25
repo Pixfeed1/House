@@ -337,8 +337,11 @@ def delete_collection(name, delete_objects=True):
         for obj in list(collection.objects):
             # Unlink from all collections before removing (Blender 4.2 compatibility)
             for coll in bpy.data.collections:
-                if obj.name in coll.objects:
+                # ✅ FIX: Essayer de unlink directement sans test, try/except gère les erreurs
+                try:
                     coll.objects.unlink(obj)
+                except (RuntimeError, ReferenceError):
+                    pass
             bpy.data.objects.remove(obj, do_unlink=True)
 
     # Supprimer la collection
@@ -487,8 +490,11 @@ def safe_delete_object(obj):
     if obj and obj.name in bpy.data.objects:
         # Unlink from all collections before removing (Blender 4.2 compatibility)
         for coll in bpy.data.collections:
-            if obj.name in coll.objects:
+            # ✅ FIX: Essayer de unlink directement sans test, try/except gère les erreurs
+            try:
                 coll.objects.unlink(obj)
+            except (RuntimeError, ReferenceError):
+                pass
         bpy.data.objects.remove(obj, do_unlink=True)
 
 
