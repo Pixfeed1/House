@@ -75,8 +75,9 @@ print(f"   Python version: {bpy.app.version[0]}.{bpy.app.version[1]}")
 print("\n7️⃣ CHEMINS ADDONS:")
 import addon_utils
 for mod in addon_utils.modules():
-    if 'House' in mod.bl_info.get('name', ''):
-        print(f"   ✅ Addon trouvé: {mod.bl_info['name']}")
+    addon_name = str(mod.bl_info.get('name', ''))
+    if 'House' in addon_name or 'house' in addon_name.lower():
+        print(f"   ✅ Addon trouvé: {addon_name}")
         print(f"   📂 Chemin: {mod.__file__}")
         print(f"   📦 Version: {mod.bl_info.get('version', 'N/A')}")
 
