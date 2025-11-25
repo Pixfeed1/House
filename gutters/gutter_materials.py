@@ -91,7 +91,12 @@ def create_gutter_material(material_type='ALUMINUM', style='MODERN', quality='ME
             node_bsdf.inputs['Base Color'].default_value = (0.95, 0.95, 0.95, 1.0)
             node_bsdf.inputs['Metallic'].default_value = 0.0
             node_bsdf.inputs['Roughness'].default_value = 0.15
-            node_bsdf.inputs['Specular'].default_value = 0.5
+
+            # ✅ FIX Blender 4.2: "Specular" n'existe plus
+            try:
+                node_bsdf.inputs['Specular'].default_value = 0.5
+            except KeyError:
+                pass
         else:
             # PVC gris/beige
             node_bsdf.inputs['Base Color'].default_value = (0.7, 0.7, 0.68, 1.0)
@@ -229,12 +234,22 @@ def create_painted_gutter_material(color=(1.0, 1.0, 1.0, 1.0), style='MODERN'):
         # Finition brillante
         node_bsdf.inputs['Metallic'].default_value = 0.0
         node_bsdf.inputs['Roughness'].default_value = 0.15
-        node_bsdf.inputs['Specular'].default_value = 0.6
+
+        # ✅ FIX Blender 4.2: "Specular" n'existe plus
+        try:
+            node_bsdf.inputs['Specular'].default_value = 0.6
+        except KeyError:
+            pass
     else:
         # Finition mate
         node_bsdf.inputs['Metallic'].default_value = 0.0
         node_bsdf.inputs['Roughness'].default_value = 0.4
-        node_bsdf.inputs['Specular'].default_value = 0.3
+
+        # ✅ FIX Blender 4.2: "Specular" n'existe plus
+        try:
+            node_bsdf.inputs['Specular'].default_value = 0.3
+        except KeyError:
+            pass
 
     links.new(node_bsdf.outputs['BSDF'], node_output.inputs['Surface'])
 

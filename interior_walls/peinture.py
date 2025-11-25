@@ -89,7 +89,12 @@ class WallPeinture(WallFinishBase):
             paint_props = PAINT_TYPES[self.paint_type]
             bsdf.inputs["Roughness"].default_value = paint_props['roughness']
             bsdf.inputs["Metallic"].default_value = paint_props['metallic']
-            bsdf.inputs["Specular"].default_value = 0.1
+
+            # ✅ FIX Blender 4.2: "Specular" n'existe plus, ignorer si absent
+            try:
+                bsdf.inputs["Specular"].default_value = 0.1
+            except KeyError:
+                pass  # Blender 4.0+ n'a plus cet input
 
         if len(obj.data.materials) == 0:
             obj.data.materials.append(mat)

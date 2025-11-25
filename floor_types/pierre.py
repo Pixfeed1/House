@@ -35,7 +35,15 @@ class PierreNaturelle(FloorTypeBase):
             # Pierre calcaire beige avec texture
             bsdf.inputs["Base Color"].default_value = (0.78, 0.72, 0.65, 1.0)
             bsdf.inputs["Roughness"].default_value = 0.6  # Surface texturée
-            bsdf.inputs["Specular"].default_value = 0.25
+            # ✅ FIX Blender 4.2: "Specular" n'existe plus
+
+            try:
+
+                bsdf.inputs["Specular"].default_value = 0.25
+
+            except KeyError:
+
+                pass
 
         if len(obj.data.materials) == 0:
             obj.data.materials.append(mat)

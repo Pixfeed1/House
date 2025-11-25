@@ -30,7 +30,15 @@ class Moquette(FloorTypeBase):
             # Moquette beige chaud
             bsdf.inputs["Base Color"].default_value = (0.82, 0.75, 0.68, 1.0)
             bsdf.inputs["Roughness"].default_value = 0.9  # Très mate
-            bsdf.inputs["Specular"].default_value = 0.05  # Presque pas de reflet
+            # ✅ FIX Blender 4.2: "Specular" n'existe plus
+
+            try:
+
+                bsdf.inputs["Specular"].default_value = 0.05  # Presque pas de reflet
+
+            except KeyError:
+
+                pass
             # Ajout de velours/duvet
             bsdf.inputs["Sheen"].default_value = 0.5
             bsdf.inputs["Sheen Tint"].default_value = 0.3

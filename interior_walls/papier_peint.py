@@ -155,7 +155,12 @@ class WallPapierPeint(WallFinishBase):
 
             # Propriétés communes
             bsdf.inputs["Roughness"].default_value = 0.7
-            bsdf.inputs["Specular"].default_value = 0.1
+
+            # ✅ FIX Blender 4.2: "Specular" n'existe plus
+            try:
+                bsdf.inputs["Specular"].default_value = 0.1
+            except KeyError:
+                pass
 
         if len(obj.data.materials) == 0:
             obj.data.materials.append(mat)

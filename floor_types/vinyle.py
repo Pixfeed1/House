@@ -37,7 +37,15 @@ class Vinyle(FloorTypeBase):
             # Vinyle gris clair imitation bois
             bsdf.inputs["Base Color"].default_value = (0.68, 0.68, 0.70, 1.0)
             bsdf.inputs["Roughness"].default_value = 0.35
-            bsdf.inputs["Specular"].default_value = 0.3
+            # ✅ FIX Blender 4.2: "Specular" n'existe plus
+
+            try:
+
+                bsdf.inputs["Specular"].default_value = 0.3
+
+            except KeyError:
+
+                pass
 
         if len(obj.data.materials) == 0:
             obj.data.materials.append(mat)

@@ -30,7 +30,15 @@ class BetonCire(FloorTypeBase):
             # Béton gris moyen, légèrement poli
             bsdf.inputs["Base Color"].default_value = (0.52, 0.52, 0.52, 1.0)
             bsdf.inputs["Roughness"].default_value = 0.25  # Poli
-            bsdf.inputs["Specular"].default_value = 0.4
+            # ✅ FIX Blender 4.2: "Specular" n'existe plus
+
+            try:
+
+                bsdf.inputs["Specular"].default_value = 0.4
+
+            except KeyError:
+
+                pass
             bsdf.inputs["Metallic"].default_value = 0.02
 
         if len(obj.data.materials) == 0:

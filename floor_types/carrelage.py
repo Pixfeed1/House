@@ -44,7 +44,15 @@ class CarrelageCeramique(FloorTypeBase):
             # ✅ Utiliser la couleur du preset choisi
             bsdf.inputs["Base Color"].default_value = tile_props['color']
             bsdf.inputs["Roughness"].default_value = tile_props['roughness']
-            bsdf.inputs["Specular"].default_value = 0.6
+            # ✅ FIX Blender 4.2: "Specular" n'existe plus
+
+            try:
+
+                bsdf.inputs["Specular"].default_value = 0.6
+
+            except KeyError:
+
+                pass
             # Légère brillance pour effet céramique
             bsdf.inputs["Sheen"].default_value = 0.1
 
@@ -90,7 +98,15 @@ class GresCerame(FloorTypeBase):
             # ✅ Utiliser la couleur du preset choisi
             bsdf.inputs["Base Color"].default_value = tile_props['color']
             bsdf.inputs["Roughness"].default_value = tile_props['roughness']
-            bsdf.inputs["Specular"].default_value = 0.7
+            # ✅ FIX Blender 4.2: "Specular" n'existe plus
+
+            try:
+
+                bsdf.inputs["Specular"].default_value = 0.7
+
+            except KeyError:
+
+                pass
             bsdf.inputs["Metallic"].default_value = 0.05
 
         if len(obj.data.materials) == 0:

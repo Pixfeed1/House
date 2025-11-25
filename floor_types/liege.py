@@ -35,7 +35,15 @@ class Liege(FloorTypeBase):
             # Liège brun naturel
             bsdf.inputs["Base Color"].default_value = (0.65, 0.52, 0.38, 1.0)
             bsdf.inputs["Roughness"].default_value = 0.7  # Texture poreuse
-            bsdf.inputs["Specular"].default_value = 0.1  # Peu réfléchissant
+            # ✅ FIX Blender 4.2: "Specular" n'existe plus
+
+            try:
+
+                bsdf.inputs["Specular"].default_value = 0.1  # Peu réfléchissant
+
+            except KeyError:
+
+                pass
 
         if len(obj.data.materials) == 0:
             obj.data.materials.append(mat)

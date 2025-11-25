@@ -46,7 +46,12 @@ class ParquetMassif(FloorTypeBase):
             # ✅ Utiliser la couleur de l'essence choisie
             bsdf.inputs["Base Color"].default_value = wood_props['color']
             bsdf.inputs["Roughness"].default_value = wood_props['roughness']
-            bsdf.inputs["Specular"].default_value = 0.2
+
+            # ✅ FIX Blender 4.2: "Specular" n'existe plus
+            try:
+                bsdf.inputs["Specular"].default_value = 0.2
+            except KeyError:
+                pass
 
         if len(obj.data.materials) == 0:
             obj.data.materials.append(mat)
@@ -88,7 +93,12 @@ class ParquetContrecolle(FloorTypeBase):
         if bsdf:
             bsdf.inputs["Base Color"].default_value = wood_props['color']
             bsdf.inputs["Roughness"].default_value = wood_props['roughness']
-            bsdf.inputs["Specular"].default_value = 0.3
+
+            # ✅ FIX Blender 4.2: "Specular" n'existe plus
+            try:
+                bsdf.inputs["Specular"].default_value = 0.3
+            except KeyError:
+                pass
 
         if len(obj.data.materials) == 0:
             obj.data.materials.append(mat)
@@ -138,7 +148,12 @@ class Stratifie(FloorTypeBase):
             )
             bsdf.inputs["Base Color"].default_value = lighter_color
             bsdf.inputs["Roughness"].default_value = wood_props['roughness'] + 0.1
-            bsdf.inputs["Specular"].default_value = 0.15
+
+            # ✅ FIX Blender 4.2: "Specular" n'existe plus
+            try:
+                bsdf.inputs["Specular"].default_value = 0.15
+            except KeyError:
+                pass
 
         if len(obj.data.materials) == 0:
             obj.data.materials.append(mat)

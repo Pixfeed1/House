@@ -35,7 +35,15 @@ class Marbre(FloorTypeBase):
             # Marbre blanc avec légères veines grises
             bsdf.inputs["Base Color"].default_value = (0.95, 0.94, 0.92, 1.0)
             bsdf.inputs["Roughness"].default_value = 0.05  # Très lisse
-            bsdf.inputs["Specular"].default_value = 0.9   # Très réfléchissant
+            # ✅ FIX Blender 4.2: "Specular" n'existe plus
+
+            try:
+
+                bsdf.inputs["Specular"].default_value = 0.9   # Très réfléchissant
+
+            except KeyError:
+
+                pass
             bsdf.inputs["Sheen"].default_value = 0.3
             # Légère subsurface pour translucidité
             bsdf.inputs["Subsurface"].default_value = 0.02
