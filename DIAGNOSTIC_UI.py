@@ -11,8 +11,14 @@ print("="*70)
 
 # 1. Vérifier si l'addon est chargé
 print("\n1️⃣ ADDON CHARGÉ:")
-addon_loaded = 'House' in bpy.context.preferences.addons
-print(f"   {'✅' if addon_loaded else '❌'} Addon 'House' chargé: {addon_loaded}")
+addon_loaded = False
+for addon in bpy.context.preferences.addons:
+    if 'House' in addon.module or 'house' in addon.module.lower():
+        addon_loaded = True
+        print(f"   ✅ Addon trouvé: {addon.module}")
+        break
+if not addon_loaded:
+    print(f"   ❌ Addon 'House' NON chargé")
 
 # 2. Vérifier si les propriétés sont enregistrées
 print("\n2️⃣ PROPRIÉTÉS SCENE:")
