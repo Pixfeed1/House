@@ -123,12 +123,14 @@ class ParquetProceduralGenerator:
         plank_w = self.plank_width + self.gap
         plank_l = self.plank_length + self.gap
 
-        rows = int(math.ceil(self.floor_width / plank_w))
+        # +2 pour marge de sécurité - le Boolean clippera ce qui dépasse
+        rows = int(math.ceil(self.floor_width / plank_w)) + 2
 
         for row in range(rows):
             x = row * plank_w + self.plank_width / 2
 
-            if x > self.floor_width:
+            # Permettre aux lames de dépasser légèrement (Boolean les clippera)
+            if x - self.plank_width / 2 > self.floor_width + self.plank_width:
                 continue
 
             # Décalage 1/3 (pose anglaise classique)
@@ -322,7 +324,7 @@ class ParquetMassif(FloorTypeBase):
         bpy.ops.mesh.primitive_cube_add(size=1)
         cutter = bpy.context.active_object
         cutter.name = "Parquet_Cutter_Temp"
-        cutter.scale = (width / 2, length / 2, self.THICKNESS * 2)
+        cutter.scale = (width, length, self.THICKNESS * 2)
         cutter.location = (width / 2, length / 2, height + self.THICKNESS / 2)
         bpy.ops.object.transform_apply(scale=True, location=True)
 
@@ -422,7 +424,7 @@ class ParquetContrecolle(FloorTypeBase):
         bpy.ops.mesh.primitive_cube_add(size=1)
         cutter = bpy.context.active_object
         cutter.name = "Parquet_Cutter_Temp"
-        cutter.scale = (width / 2, length / 2, self.THICKNESS * 2)
+        cutter.scale = (width, length, self.THICKNESS * 2)
         cutter.location = (width / 2, length / 2, height + self.THICKNESS / 2)
         bpy.ops.object.transform_apply(scale=True, location=True)
 
@@ -520,7 +522,7 @@ class Stratifie(FloorTypeBase):
         bpy.ops.mesh.primitive_cube_add(size=1)
         cutter = bpy.context.active_object
         cutter.name = "Parquet_Cutter_Temp"
-        cutter.scale = (width / 2, length / 2, self.THICKNESS * 2)
+        cutter.scale = (width, length, self.THICKNESS * 2)
         cutter.location = (width / 2, length / 2, height + self.THICKNESS / 2)
         bpy.ops.object.transform_apply(scale=True, location=True)
 
