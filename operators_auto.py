@@ -986,6 +986,7 @@ class HOUSE_OT_generate_auto(Operator):
         finishes = []
 
         # ✅ Mur AVANT (face intérieure, orientation Y+)
+        print(f"[House] Création finition mur AVANT : largeur={width - 2*wall_thickness:.2f}m, hauteur={floor_height:.2f}m")
         front_finish = InteriorWallFinishManager.generate_finish_geometry(
             finish_type,
             width=width - 2*wall_thickness,
@@ -998,8 +999,12 @@ class HOUSE_OT_generate_auto(Operator):
             front_finish.name = f"Interior_Finish_Front_{finish_type}"
             collection.objects.link(front_finish)
             finishes.append(front_finish)
+            print(f"[House] ✅ Mur AVANT créé avec succès")
+        else:
+            print(f"[House] ❌ Mur AVANT ÉCHEC - finition non créée")
 
         # ✅ Mur ARRIÈRE (face intérieure, orientation Y-)
+        print(f"[House] Création finition mur ARRIÈRE : largeur={width - 2*wall_thickness:.2f}m, hauteur={floor_height:.2f}m")
         back_finish = InteriorWallFinishManager.generate_finish_geometry(
             finish_type,
             width=width - 2*wall_thickness,
@@ -1012,8 +1017,12 @@ class HOUSE_OT_generate_auto(Operator):
             back_finish.name = f"Interior_Finish_Back_{finish_type}"
             collection.objects.link(back_finish)
             finishes.append(back_finish)
+            print(f"[House] ✅ Mur ARRIÈRE créé avec succès")
+        else:
+            print(f"[House] ❌ Mur ARRIÈRE ÉCHEC - finition non créée")
 
         # ✅ Mur GAUCHE (face intérieure, orientation X+)
+        print(f"[House] Création finition mur GAUCHE : largeur={length - 2*wall_thickness:.2f}m, hauteur={floor_height:.2f}m")
         left_finish = InteriorWallFinishManager.generate_finish_geometry(
             finish_type,
             width=length - 2*wall_thickness,
@@ -1026,8 +1035,12 @@ class HOUSE_OT_generate_auto(Operator):
             left_finish.name = f"Interior_Finish_Left_{finish_type}"
             collection.objects.link(left_finish)
             finishes.append(left_finish)
+            print(f"[House] ✅ Mur GAUCHE créé avec succès")
+        else:
+            print(f"[House] ❌ Mur GAUCHE ÉCHEC - finition non créée")
 
         # ✅ Mur DROIT (face intérieure, orientation X-)
+        print(f"[House] Création finition mur DROIT : largeur={length - 2*wall_thickness:.2f}m, hauteur={floor_height:.2f}m")
         right_finish = InteriorWallFinishManager.generate_finish_geometry(
             finish_type,
             width=length - 2*wall_thickness,
@@ -1040,6 +1053,9 @@ class HOUSE_OT_generate_auto(Operator):
             right_finish.name = f"Interior_Finish_Right_{finish_type}"
             collection.objects.link(right_finish)
             finishes.append(right_finish)
+            print(f"[House] ✅ Mur DROIT créé avec succès")
+        else:
+            print(f"[House] ❌ Mur DROIT ÉCHEC - finition non créée")
 
         print(f"[House] ✅ {len(finishes)} panneaux de finition générés")
         return finishes
