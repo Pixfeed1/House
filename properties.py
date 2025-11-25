@@ -793,6 +793,18 @@ class HouseGeneratorProperties(PropertyGroup):
         update=regenerate_house
     )
 
+    parquet_pattern: EnumProperty(
+        name="Type de pose",
+        description="Motif de pose du parquet",
+        items=[
+            ('STRAIGHT', "À l'Anglaise", "Pose droite décalée (classique)", 0),
+            ('CHEVRON', "Chevron", "Pointe de flèche à 45°", 1),
+            ('HERRINGBONE', "Bâton Rompu", "Lames perpendiculaires", 2),
+        ],
+        default='STRAIGHT',
+        update=regenerate_house
+    )
+
     # Options pour CARRELAGE
     tile_color_preset: EnumProperty(
         name="Couleur carrelage",

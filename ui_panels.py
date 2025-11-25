@@ -440,6 +440,11 @@ class HOUSE_PT_flooring_panel(Panel):
             col.label(text="Essence de bois:", icon='COLORSET_05_VEC')
             col.prop(props, "parquet_wood_type", text="")
 
+            box.separator()
+            col = box.column(align=True)
+            col.label(text="Type de pose:", icon='MOD_ARRAY')
+            col.prop(props, "parquet_pattern", text="")
+
             # Info selon essence
             wood_info = {
                 'OAK': "Chêne - Classique durable",

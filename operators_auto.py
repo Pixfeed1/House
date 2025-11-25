@@ -808,6 +808,7 @@ class HOUSE_OT_generate_auto(Operator):
                 # Options pour PARQUET/BOIS
                 if props.flooring_type in ['HARDWOOD_SOLID', 'HARDWOOD_ENGINEERED', 'LAMINATE']:
                     custom_options['wood_type'] = props.parquet_wood_type
+                    custom_options['pattern'] = props.parquet_pattern
 
                 # Options pour CARRELAGE
                 elif props.flooring_type in ['CERAMIC_TILE', 'PORCELAIN_TILE']:
