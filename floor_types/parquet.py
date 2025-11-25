@@ -137,7 +137,10 @@ class ParquetProceduralGenerator:
             # Décalage 1/3 (pose anglaise classique)
             offset = (row % 3) * (plank_l / 3)
 
-            y = offset + self.plank_length / 2
+            # Commencer avant le décalage pour ne pas laisser de trou au début
+            y = offset + self.plank_length / 2 - plank_l
+            if y < 0:
+                y = self.plank_length / 2
 
             while y - self.plank_length / 2 < self.floor_length:
                 # Calculer la longueur réelle (couper si dépasse)
@@ -155,7 +158,8 @@ class ParquetProceduralGenerator:
                     actual_length -= (end_y - self.floor_length)
                     y = self.floor_length - actual_length / 2
 
-                if actual_length > 0.05:  # Minimum 5cm
+                # Minimum 1cm au lieu de 5cm pour éviter les trous
+                if actual_length > 0.01:
                     self.create_plank(
                         bm, x, y, 0,
                         self.plank_width, actual_length, self.plank_thickness,

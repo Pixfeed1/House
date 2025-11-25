@@ -153,6 +153,13 @@ class HOUSE_OT_generate_auto(Operator):
             progress += 10
             wm.progress_update(progress)
 
+            # ✅ PLAFONDS entre les étages (si plusieurs étages)
+            if props.num_floors > 1:
+                print("[House] Plafonds...")
+                self._generate_ceilings(context, props, house_collection)
+                progress += 5
+                wm.progress_update(progress)
+
             # ✅ NOUVEAU: Finitions murales intérieures (si activé)
             if hasattr(props, 'use_interior_walls_system') and props.use_interior_walls_system:
                 print("[House] Finitions murales intérieures...")
@@ -853,6 +860,76 @@ class HOUSE_OT_generate_auto(Operator):
             floors.append(floor)
 
         return floors
+
+    def _generate_ceilings(self, context, props, collection):
+        """Génère les plafonds entre les étages
+
+        Un plafond est créé pour chaque étage SAUF le dernier (qui a le toit).
+        Le plafond est positionné juste en dessous de la hauteur de l'étage suivant.
+        """
+        width = props.house_width
+        length = props.house_length
+        ceiling_thickness = 0.01  # 1cm d'épaisseur pour le plafond
+
+        ceilings = []
+
+        print(f"[House] Génération de {props.num_floors - 1} plafond(s)")
+
+        # Générer un plafond pour chaque étage sauf le dernier
+        for floor_num in range(props.num_floors - 1):
+            # Position du plafond : juste sous le plancher de l'étage supérieur
+            ceiling_z = (floor_num + 1) * props.floor_height - ceiling_thickness / 2
+
+            # Utiliser les mêmes dimensions que les sols (avec inset)
+            inset_width = width * FLOOR_INSET
+            inset_length = length * FLOOR_INSET
+
+            location = Vector((width/2, length/2, ceiling_z))
+            dimensions = Vector((inset_width, inset_length, ceiling_thickness))
+
+            ceiling_name = f"Ceiling_{floor_num}"
+            ceiling, mesh = self._create_box_mesh(ceiling_name, location, dimensions)
+
+            collection.objects.link(ceiling)
+            ceiling["house_part"] = "ceiling"
+
+            # Appliquer un matériau simple blanc pour le plafond
+            self._apply_ceiling_material(ceiling)
+
+            ceilings.append(ceiling)
+
+            print(f"[House] Plafond {floor_num} créé à Z={ceiling_z:.3f}m")
+
+        return ceilings
+
+    def _apply_ceiling_material(self, obj):
+        """Applique un matériau simple blanc pour le plafond"""
+        mat_name = "Material_Ceiling_White"
+        mat = bpy.data.materials.get(mat_name)
+
+        if not mat:
+            mat = bpy.data.materials.new(name=mat_name)
+            mat.use_nodes = True
+
+            bsdf = mat.node_tree.nodes.get("Principled BSDF")
+            if bsdf:
+                # Blanc cassé (légèrement beige)
+                bsdf.inputs["Base Color"].default_value = (0.95, 0.94, 0.92, 1.0)
+                bsdf.inputs["Roughness"].default_value = 0.8  # Mate
+
+                # Blender 4.2 compatible
+                try:
+                    bsdf.inputs["Specular IOR Level"].default_value = 0.3
+                except KeyError:
+                    try:
+                        bsdf.inputs["Specular"].default_value = 0.3
+                    except KeyError:
+                        pass
+
+        if len(obj.data.materials) == 0:
+            obj.data.materials.append(mat)
+        else:
+            obj.data.materials[0] = mat
 
     def _generate_interior_wall_finishes(self, context, props, collection):
         """Génère les finitions murales intérieures (peinture, papier peint, etc.)
