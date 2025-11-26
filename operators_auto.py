@@ -832,8 +832,8 @@ class HOUSE_OT_generate_auto(Operator):
                 )
 
                 if floor_obj:
-                    # ✅ FIX BUG #5: Position centrée dans la maison avec hauteur correcte
-                    floor_obj.location = (width/2 - inset_width/2, length/2 - inset_length/2, z_pos)
+                    # ✅ CORRECTION: Position centrée (l'origine du sol est déjà au centre)
+                    floor_obj.location = (width/2, length/2, z_pos)
                     collection.objects.link(floor_obj)
                     floors.append(floor_obj)
 
