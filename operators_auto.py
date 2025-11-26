@@ -1946,11 +1946,18 @@ class HOUSE_OT_generate_auto(Operator):
                 random_seed=42
             )
 
-            # Appliquer le bardage
-            # Pour les murs existants, on applique juste le matériau
-            bardage.generate_for_wall(wall_obj, collection)
+            # ✅ CORRECTION : Créer le mesh des lames de bardage
+            # On passe None pour forcer la création du mesh au lieu d'appliquer juste le matériau
+            bardage_obj = bardage.generate_for_wall(None, collection)
 
-            print(f"[House] ✅ Bardage {props.bardage_material_type} ({props.bardage_pose_type}) appliqué sur {wall_obj.name}")
+            # Positionner le bardage devant le mur
+            if bardage_obj:
+                bardage_obj.location = wall_obj.location.copy()
+                # Décaler légèrement vers l'extérieur pour éviter z-fighting
+                bardage_obj.location.z += 0.001
+                bardage_obj["house_part"] = "bardage"
+
+            print(f"[House] ✅ Bardage {props.bardage_material_type} ({props.bardage_pose_type}) créé avec mesh de lames")
 
         except Exception as e:
             print(f"[House] ⚠️ Erreur application bardage sur {wall_obj.name}: {e}")
