@@ -784,15 +784,20 @@ class HOUSE_OT_generate_auto(Operator):
     
     def _generate_floors(self, context, props, collection):
         """Génère les planchers (simple ou système avancé)"""
+        print("[House] === DÉBUT GÉNÉRATION SOLS ===")
         width = props.house_width
         length = props.house_length
         floor_thickness = FLOOR_THICKNESS
+
+        print(f"[House] Dimensions: width={width:.2f}m, length={length:.2f}m, thickness={floor_thickness:.3f}m")
+        print(f"[House] Nombre d'étages: {props.num_floors}")
 
         floors = []
 
         # ✅ SYSTÈME AVANCÉ: Utiliser flooring.py si activé
         if hasattr(props, 'use_flooring_system') and props.use_flooring_system:
             print("[House] Utilisation du système de sols avancé")
+            print(f"[House] Type de sol: {props.flooring_type}, Qualité: {props.flooring_quality}")
 
             # Mapper qualité property vers constantes flooring
             quality_map = {
@@ -808,6 +813,7 @@ class HOUSE_OT_generate_auto(Operator):
 
             # Générer les sols pour chaque étage
             for floor_num in range(props.num_floors):
+                print(f"[House] --- Génération sol étage {floor_num} ---")
                 if floor_num == 0:
                     z_pos = 0  # Sol rez-de-chaussée au niveau 0
                 else:
@@ -815,6 +821,8 @@ class HOUSE_OT_generate_auto(Operator):
 
                 inset_width = width * FLOOR_INSET
                 inset_length = length * FLOOR_INSET
+
+                print(f"[House]   Position Z: {z_pos:.2f}m, Dimensions inset: {inset_width:.2f}m x {inset_length:.2f}m")
 
                 room_name = "RDC" if floor_num == 0 else f"Etage{floor_num}"
 
@@ -846,11 +854,17 @@ class HOUSE_OT_generate_auto(Operator):
                     floor_obj.location = (width/2, length/2, z_pos)
                     collection.objects.link(floor_obj)
                     floors.append(floor_obj)
+                    print(f"[House]   ✅ Sol créé: {floor_obj.name}, location={floor_obj.location}, collection={collection.name}")
+                else:
+                    print(f"[House]   ❌ ERREUR: floor_obj est None pour étage {floor_num}!")
 
+            print(f"[House] === FIN SOLS AVANCÉS: {len(floors)} sols créés ===")
             return floors
 
         # ✅ SYSTÈME SIMPLE (code original)
+        print("[House] Utilisation du système de sols SIMPLE")
         for floor_num in range(props.num_floors):
+            print(f"[House] --- Génération sol SIMPLE étage {floor_num} ---")
             if floor_num == 0:
                 z_pos = floor_thickness / 2
             else:
@@ -862,12 +876,17 @@ class HOUSE_OT_generate_auto(Operator):
             location = Vector((width/2, length/2, z_pos))
             dimensions = Vector((inset_width, inset_length, floor_thickness))
 
+            print(f"[House]   Location: {location}, Dimensions: {dimensions}")
+
             floor_name = f"Floor_Ground" if floor_num == 0 else f"Floor_{floor_num}"
             floor, mesh = self._create_box_mesh(floor_name, location, dimensions)
             collection.objects.link(floor)
             floor["house_part"] = "floor"
             floors.append(floor)
 
+            print(f"[House]   ✅ Sol créé: {floor.name}, location={floor.location}, collection={collection.name}")
+
+        print(f"[House] === FIN SOLS SIMPLES: {len(floors)} sols créés ===")
         return floors
 
     def _generate_ceilings(self, context, props, collection):
@@ -953,10 +972,47 @@ class HOUSE_OT_generate_auto(Operator):
         else:
             obj.data.materials[0] = mat
 
+    def _calculate_window_positions(self, props):
+        """Calcule les positions des fenêtres pour éviter collisions avec cloisons
+
+        Returns:
+            Dict avec positions X et Y des fenêtres
+        """
+        width = props.house_width
+        length = props.house_length
+
+        # Calculer nombre de fenêtres (même logique que _generate_windows_complete)
+        num_windows_front = self._calculate_safe_window_count(width, "largeur")
+        num_windows_side = self._calculate_safe_window_count(length, "longueur")
+
+        # Calculer positions X des fenêtres (murs avant/arrière)
+        spacing_front = width / (num_windows_front + 1)
+        window_positions_x = [spacing_front * (i + 1) for i in range(num_windows_front)]
+
+        # Calculer positions Y des fenêtres (murs gauche/droit)
+        spacing_side = length / (num_windows_side + 1)
+        window_positions_y = [spacing_side * (i + 1) for i in range(num_windows_side)]
+
+        # Position porte d'entrée (toujours au centre du mur avant)
+        door_center_x = width / 2
+
+        print(f"[House] Positions fenêtres calculées:")
+        print(f"[House]   X (murs avant/arrière): {[f'{x:.2f}' for x in window_positions_x]}")
+        print(f"[House]   Y (murs gauche/droit): {[f'{y:.2f}' for y in window_positions_y]}")
+        print(f"[House]   Porte d'entrée X: {door_center_x:.2f}")
+
+        return {
+            'window_x': window_positions_x,
+            'window_y': window_positions_y,
+            'door_x': door_center_x,
+            'door_width': props.front_door_width
+        }
+
     def _generate_room_partitions(self, context, props, collection):
         """Génère les cloisons intérieures pour créer des pièces
 
         ✅ NOUVEAU SYSTÈME: Utilise room_layout.py pour générer la distribution
+        ✅ ÉVITEMENT FENÊTRES: Calcule positions fenêtres et les évite
         """
         if not (hasattr(props, 'use_room_layout') and props.use_room_layout):
             print("[House] Système de distribution des pièces désactivé")
@@ -967,8 +1023,11 @@ class HOUSE_OT_generate_auto(Operator):
         num_floors = props.num_floors
         partition_thickness = props.partition_thickness if hasattr(props, 'partition_thickness') else 0.10
 
-        # Créer le générateur avec support multi-étages
-        layout_gen = RoomLayoutGenerator(width, length, num_floors, partition_thickness)
+        # ✅ Calculer positions des fenêtres pour éviter collisions
+        window_positions = self._calculate_window_positions(props)
+
+        # Créer le générateur avec support multi-étages + positions fenêtres
+        layout_gen = RoomLayoutGenerator(width, length, num_floors, partition_thickness, window_positions)
 
         # Mode AUTO ou MANUAL
         mode = props.room_layout_mode if hasattr(props, 'room_layout_mode') else 'AUTO'

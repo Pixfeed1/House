@@ -44,7 +44,7 @@ ROOM_TYPES = {
 class RoomLayoutGenerator:
     """Générateur de distribution de pièces avec cloisons et portes"""
 
-    def __init__(self, width, length, num_floors=1, wall_thickness=0.10):
+    def __init__(self, width, length, num_floors=1, wall_thickness=0.10, window_positions=None):
         """
         Initialise le générateur de distribution.
 
@@ -53,14 +53,87 @@ class RoomLayoutGenerator:
             length: Longueur totale de la maison
             num_floors: Nombre d'étages
             wall_thickness: Épaisseur des cloisons (10cm par défaut)
+            window_positions: Dict avec positions des fenêtres {'window_x': [...], 'window_y': [...]}
         """
         self.width = width
         self.length = length
         self.num_floors = num_floors
         self.wall_thickness = wall_thickness
+        self.window_positions = window_positions or {'window_x': [], 'window_y': [], 'door_x': 0, 'door_width': 1.0}
         self.partitions_per_floor = {}  # {floor_num: [partitions]}
         self.doors_per_floor = {}        # {floor_num: [doors]}
         self.rooms_per_floor = {}        # {floor_num: [room_specs]}
+
+        # Marge de sécurité autour des fenêtres (60cm de chaque côté)
+        self.window_clearance = 0.60
+
+        print(f"[RoomLayout] Initialisation avec {len(self.window_positions.get('window_x', []))} fenêtres X, {len(self.window_positions.get('window_y', []))} fenêtres Y")
+
+    def _check_partition_collision(self, partition_type, position):
+        """
+        Vérifie si une cloison entre en collision avec une fenêtre.
+
+        Args:
+            partition_type: 'vertical' (position X) ou 'horizontal' (position Y)
+            position: Position de la cloison (X pour vertical, Y pour horizontal)
+
+        Returns:
+            True si collision, False sinon
+        """
+        if partition_type == 'vertical':
+            # Cloison verticale (va dans direction Y) → vérifier fenêtres sur murs avant/arrière (position X)
+            for window_x in self.window_positions.get('window_x', []):
+                if abs(position - window_x) < self.window_clearance:
+                    print(f"[RoomLayout]   ⚠️  Collision détectée: cloison verticale à X={position:.2f}m proche fenêtre à X={window_x:.2f}m")
+                    return True
+
+            # Vérifier aussi la porte d'entrée
+            door_x = self.window_positions.get('door_x', 0)
+            door_width = self.window_positions.get('door_width', 1.0)
+            if abs(position - door_x) < (door_width / 2 + self.window_clearance):
+                print(f"[RoomLayout]   ⚠️  Collision détectée: cloison verticale à X={position:.2f}m proche porte à X={door_x:.2f}m")
+                return True
+
+        elif partition_type == 'horizontal':
+            # Cloison horizontale (va dans direction X) → vérifier fenêtres sur murs gauche/droit (position Y)
+            for window_y in self.window_positions.get('window_y', []):
+                if abs(position - window_y) < self.window_clearance:
+                    print(f"[RoomLayout]   ⚠️  Collision détectée: cloison horizontale à Y={position:.2f}m proche fenêtre à Y={window_y:.2f}m")
+                    return True
+
+        return False
+
+    def _adjust_partition_position(self, partition_type, original_position, min_offset=0.80):
+        """
+        Ajuste la position d'une cloison pour éviter les fenêtres.
+
+        Args:
+            partition_type: 'vertical' ou 'horizontal'
+            original_position: Position originale souhaitée
+            min_offset: Distance minimum à déplacer si collision (80cm par défaut)
+
+        Returns:
+            Nouvelle position ajustée, ou None si impossible de placer
+        """
+        if not self._check_partition_collision(partition_type, original_position):
+            return original_position
+
+        # Essayer de décaler vers la gauche/bas
+        adjusted = original_position - min_offset
+        if adjusted > 0.5 and not self._check_partition_collision(partition_type, adjusted):
+            print(f"[RoomLayout]   ✅ Cloison ajustée: {original_position:.2f}m → {adjusted:.2f}m")
+            return adjusted
+
+        # Essayer de décaler vers la droite/haut
+        adjusted = original_position + min_offset
+        max_pos = self.width if partition_type == 'vertical' else self.length
+        if adjusted < (max_pos - 0.5) and not self._check_partition_collision(partition_type, adjusted):
+            print(f"[RoomLayout]   ✅ Cloison ajustée: {original_position:.2f}m → {adjusted:.2f}m")
+            return adjusted
+
+        # Impossible de placer cette cloison
+        print(f"[RoomLayout]   ❌ Impossible de placer cloison à {original_position:.2f}m (trop de fenêtres)")
+        return None
 
     def generate_auto_layout(self, num_rooms, include_kitchen=True, include_bathroom=True, num_bathrooms=1):
         """
@@ -222,37 +295,43 @@ class RoomLayoutGenerator:
         return partitions, doors
 
     def _layout_2_rooms(self, floor_num, rooms):
-        """Layout pour 2 pièces"""
+        """Layout pour 2 pièces avec évitement fenêtres"""
         partitions = []
         doors = []
 
         # Division verticale au milieu
         mid_x = self.width / 2
 
-        # Cloison centrale
-        partitions.append({
-            'type': 'vertical',
-            'x': mid_x,
-            'y_start': 0,
-            'y_end': self.length,
-            'height': 2.5,
-            'floor': floor_num
-        })
+        # ✅ Vérifier et ajuster position cloison
+        adjusted_x = self._adjust_partition_position('vertical', mid_x)
 
-        # Porte au milieu de la cloison
-        door_y = self.length / 2
-        doors.append({
-            'partition_index': len(partitions) - 1,
-            'position_along': door_y,
-            'width': DOOR_WIDTH_STANDARD,
-            'type': 'center',
-            'floor': floor_num
-        })
+        if adjusted_x is not None:
+            # Cloison centrale
+            partitions.append({
+                'type': 'vertical',
+                'x': adjusted_x,
+                'y_start': 0,
+                'y_end': self.length,
+                'height': 2.5,
+                'floor': floor_num
+            })
+
+            # Porte au milieu de la cloison
+            door_y = self.length / 2
+            doors.append({
+                'partition_index': len(partitions) - 1,
+                'position_along': door_y,
+                'width': DOOR_WIDTH_STANDARD,
+                'type': 'center',
+                'floor': floor_num
+            })
+        else:
+            print(f"[RoomLayout] ⚠️  Impossible de créer layout 2 pièces (conflit fenêtres)")
 
         return partitions, doors
 
     def _layout_3_rooms(self, floor_num, rooms):
-        """Layout pour 3 pièces"""
+        """Layout pour 3 pièces avec évitement fenêtres"""
         partitions = []
         doors = []
 
@@ -264,73 +343,90 @@ class RoomLayoutGenerator:
             mid_x = self.width * 0.6
             mid_y = self.length / 2
 
-            # Cloison verticale principale
-            partitions.append({
-                'type': 'vertical',
-                'x': mid_x,
-                'y_start': 0,
-                'y_end': self.length,
-                'height': 2.5,
-                'floor': floor_num
-            })
+            # ✅ Vérifier et ajuster cloison verticale
+            adjusted_x = self._adjust_partition_position('vertical', mid_x)
 
-            # Porte dans cloison verticale (vers le haut)
-            doors.append({
-                'partition_index': len(partitions) - 1,
-                'position_along': self.length * 0.75,
-                'width': DOOR_WIDTH_STANDARD,
-                'type': 'corridor',
-                'floor': floor_num
-            })
+            if adjusted_x is not None:
+                # Cloison verticale principale
+                partitions.append({
+                    'type': 'vertical',
+                    'x': adjusted_x,
+                    'y_start': 0,
+                    'y_end': self.length,
+                    'height': 2.5,
+                    'floor': floor_num
+                })
 
-            # Cloison horizontale (divise zone droite en 2)
-            partitions.append({
-                'type': 'horizontal',
-                'x_start': mid_x,
-                'x_end': self.width,
-                'y': mid_y,
-                'height': 2.5,
-                'floor': floor_num
-            })
+                # Porte dans cloison verticale (vers le haut)
+                doors.append({
+                    'partition_index': len(partitions) - 1,
+                    'position_along': self.length * 0.75,
+                    'width': DOOR_WIDTH_STANDARD,
+                    'type': 'corridor',
+                    'floor': floor_num
+                })
 
-            # Porte dans SDB (pièce du haut généralement)
-            doors.append({
-                'partition_index': len(partitions) - 1,
-                'position_along': mid_x + (self.width - mid_x) * 0.5,
-                'width': DOOR_WIDTH_BATHROOM,
-                'type': 'bathroom',
-                'floor': floor_num
-            })
+            # ✅ Vérifier et ajuster cloison horizontale
+            adjusted_y = self._adjust_partition_position('horizontal', mid_y)
+
+            if adjusted_y is not None and adjusted_x is not None:
+                # Cloison horizontale (divise zone droite en 2)
+                partitions.append({
+                    'type': 'horizontal',
+                    'x_start': adjusted_x,
+                    'x_end': self.width,
+                    'y': adjusted_y,
+                    'height': 2.5,
+                    'floor': floor_num
+                })
+
+                # Porte dans SDB (pièce du haut généralement)
+                doors.append({
+                    'partition_index': len(partitions) - 1,
+                    'position_along': adjusted_x + (self.width - adjusted_x) * 0.5,
+                    'width': DOOR_WIDTH_BATHROOM,
+                    'type': 'bathroom',
+                    'floor': floor_num
+                })
 
         else:
             # Layout symétrique : 3 pièces équilibrées
             third_x = self.width / 3
             two_thirds_x = 2 * self.width / 3
 
-            # 2 cloisons verticales
-            partitions.append({
-                'type': 'vertical',
-                'x': third_x,
-                'y_start': 0,
-                'y_end': self.length,
-                'height': 2.5,
-                'floor': floor_num
-            })
+            # ✅ Vérifier et ajuster les 2 cloisons verticales
+            adjusted_x1 = self._adjust_partition_position('vertical', third_x)
+            adjusted_x2 = self._adjust_partition_position('vertical', two_thirds_x)
 
-            partitions.append({
-                'type': 'vertical',
-                'x': two_thirds_x,
-                'y_start': 0,
-                'y_end': self.length,
-                'height': 2.5,
-                'floor': floor_num
-            })
+            partition_indices = []
+
+            if adjusted_x1 is not None:
+                partitions.append({
+                    'type': 'vertical',
+                    'x': adjusted_x1,
+                    'y_start': 0,
+                    'y_end': self.length,
+                    'height': 2.5,
+                    'floor': floor_num
+                })
+                partition_indices.append(len(partitions) - 1)
+
+            if adjusted_x2 is not None:
+                partitions.append({
+                    'type': 'vertical',
+                    'x': adjusted_x2,
+                    'y_start': 0,
+                    'y_end': self.length,
+                    'height': 2.5,
+                    'floor': floor_num
+                })
+                partition_indices.append(len(partitions) - 1)
 
             # Portes
             door_y = self.length / 2
-            for i in range(2):
+            for idx in partition_indices:
                 doors.append({
-                    'partition_index': i,
+                    'partition_index': idx,
                     'position_along': door_y,
                     'width': DOOR_WIDTH_STANDARD,
                     'type': 'center',
@@ -340,7 +436,7 @@ class RoomLayoutGenerator:
         return partitions, doors
 
     def _layout_multi_rooms(self, floor_num, rooms):
-        """Layout pour 4+ pièces avec couloir central"""
+        """Layout pour 4+ pièces avec couloir central et évitement fenêtres"""
         partitions = []
         doors = []
 
@@ -351,6 +447,34 @@ class RoomLayoutGenerator:
         corridor_y_start = (self.length - corridor_width) / 2
         corridor_y_end = corridor_y_start + corridor_width
 
+        # ✅ Vérifier et ajuster positions cloisons horizontales du couloir
+        adjusted_y_start = self._adjust_partition_position('horizontal', corridor_y_start)
+        adjusted_y_end = self._adjust_partition_position('horizontal', corridor_y_end)
+
+        # Si impossible de placer le couloir, fallback sur layout plus simple
+        if adjusted_y_start is None or adjusted_y_end is None:
+            print(f"[RoomLayout] ⚠️  Impossible de créer couloir (conflit fenêtres), fallback layout simple")
+            # Fallback: division verticale simple
+            mid_x = self.width / 2
+            adjusted_x = self._adjust_partition_position('vertical', mid_x)
+            if adjusted_x is not None:
+                partitions.append({
+                    'type': 'vertical',
+                    'x': adjusted_x,
+                    'y_start': 0,
+                    'y_end': self.length,
+                    'height': 2.5,
+                    'floor': floor_num
+                })
+                doors.append({
+                    'partition_index': 0,
+                    'position_along': self.length / 2,
+                    'width': DOOR_WIDTH_STANDARD,
+                    'type': 'center',
+                    'floor': floor_num
+                })
+            return partitions, doors
+
         # Diviser en zones : haut / couloir / bas
         # Chaque zone peut avoir 2 pièces (gauche/droite)
 
@@ -359,7 +483,7 @@ class RoomLayoutGenerator:
             'type': 'horizontal',
             'x_start': 0,
             'x_end': self.width,
-            'y': corridor_y_start,
+            'y': adjusted_y_start,
             'height': 2.5,
             'floor': floor_num
         })
@@ -368,7 +492,7 @@ class RoomLayoutGenerator:
             'type': 'horizontal',
             'x_start': 0,
             'x_end': self.width,
-            'y': corridor_y_end,
+            'y': adjusted_y_end,
             'height': 2.5,
             'floor': floor_num
         })
@@ -410,25 +534,31 @@ class RoomLayoutGenerator:
         # Cloisons verticales pour diviser haut et bas en 2 pièces chacun
         mid_x = self.width / 2
 
-        # Zone haute
-        partitions.append({
-            'type': 'vertical',
-            'x': mid_x,
-            'y_start': corridor_y_start,
-            'y_end': self.length,
-            'height': 2.5,
-            'floor': floor_num
-        })
+        # ✅ Vérifier et ajuster cloison verticale
+        adjusted_x = self._adjust_partition_position('vertical', mid_x)
 
-        # Zone basse
-        partitions.append({
-            'type': 'vertical',
-            'x': mid_x,
-            'y_start': 0,
-            'y_end': corridor_y_start,
-            'height': 2.5,
-            'floor': floor_num
-        })
+        if adjusted_x is not None:
+            # Zone haute
+            partitions.append({
+                'type': 'vertical',
+                'x': adjusted_x,
+                'y_start': adjusted_y_end,
+                'y_end': self.length,
+                'height': 2.5,
+                'floor': floor_num
+            })
+
+            # Zone basse
+            partitions.append({
+                'type': 'vertical',
+                'x': adjusted_x,
+                'y_start': 0,
+                'y_end': adjusted_y_start,
+                'height': 2.5,
+                'floor': floor_num
+            })
+        else:
+            print(f"[RoomLayout] ⚠️  Impossible de créer cloison verticale (conflit fenêtres)")
 
         return partitions, doors
 
