@@ -287,7 +287,7 @@ class HOUSE_PT_materials_panel(Panel):
 
 
 class HOUSE_PT_exterior_finish_panel(Panel):
-    """Panneau pour les finitions extérieures (crépi/enduit)"""
+    """Panneau pour les finitions extérieures (crépi/enduit + bardage)"""
     bl_label = "Finitions extérieures"
     bl_idname = "HOUSE_PT_exterior_finish_panel"
     bl_space_type = 'VIEW_3D'
@@ -302,76 +302,144 @@ class HOUSE_PT_exterior_finish_panel(Panel):
 
         layout.use_property_split = False
 
+        # ============================================================
+        # CRÉPI/ENDUIT
+        # ============================================================
+
         layout.prop(props, "use_exterior_crepi", text="Activer crépi/enduit", toggle=True)
 
-        if not props.use_exterior_crepi:
-            return
+        if props.use_exterior_crepi:
+            layout.separator()
 
-        layout.separator()
+            box = layout.box()
+            box.label(text="Type de crépi", icon='MATERIAL')
+            box.prop(props, "exterior_crepi_type", text="")
 
-        box = layout.box()
-        box.label(text="Type de crépi", icon='MATERIAL')
-        box.prop(props, "exterior_crepi_type", text="")
+            # Info sur le type de crépi
+            crepi_type_info = {
+                'GRATTE': "Traditionnel, texture grattée",
+                'TALOCHE': "Lisse, aspect moderne",
+                'RIBBE': "Stries horizontales",
+                'ECRASE': "Rustique, relief prononcé",
+                'PROJETE': "Rugueux, aspect brut",
+                'LISSE': "Moderne, surface plane",
+            }
+            if props.exterior_crepi_type in crepi_type_info:
+                info_box = box.box()
+                info_box.scale_y = 0.7
+                info_box.label(text=crepi_type_info[props.exterior_crepi_type], icon='INFO')
 
-        # Info sur le type de crépi
-        crepi_type_info = {
-            'GRATTE': "Traditionnel, texture grattée",
-            'TALOCHE': "Lisse, aspect moderne",
-            'RIBBE': "Stries horizontales",
-            'ECRASE': "Rustique, relief prononcé",
-            'PROJETE': "Rugueux, aspect brut",
-            'LISSE': "Moderne, surface plane",
-        }
-        if props.exterior_crepi_type in crepi_type_info:
+            layout.separator()
+
+            box = layout.box()
+            box.label(text="Couleur", icon='COLOR')
+            col = box.column(align=True)
+            col.prop(props, "exterior_crepi_color_preset", text="")
+
+            if props.exterior_crepi_color_preset == 'CUSTOM':
+                box.separator()
+                col = box.column(align=True)
+                col.label(text="Couleur personnalisée:", icon='BRUSH_DATA')
+                col.prop(props, "exterior_crepi_custom_color", text="")
+
+            layout.separator()
+
+            box = layout.box()
+            box.label(text="Réglages texture", icon='TEXTURE')
+            col = box.column(align=True)
+            col.prop(props, "exterior_crepi_grain_size", text="Taille grain", slider=True)
+            col.prop(props, "exterior_crepi_grain_intensity", text="Intensité", slider=True)
+
+            layout.separator()
+
+            box = layout.box()
+            box.label(text="Vieillissement", icon='SHADERFX')
+            col = box.column(align=True)
+            col.prop(props, "exterior_crepi_imperfections", text="Imperfections", slider=True)
+            col.prop(props, "exterior_crepi_aging", text="Âge", slider=True)
+
             info_box = box.box()
             info_box.scale_y = 0.7
-            info_box.label(text=crepi_type_info[props.exterior_crepi_type], icon='INFO')
+            info_box.label(text="Salissures, taches, mousse, fissures", icon='INFO')
+
+        # ============================================================
+        # BARDAGE BOIS
+        # ============================================================
 
         layout.separator()
+        layout.prop(props, "use_exterior_bardage", text="Activer bardage bois", toggle=True)
 
-        # ============================================================
-        # COULEUR
-        # ============================================================
+        if props.use_exterior_bardage:
+            layout.separator()
 
-        box = layout.box()
-        box.label(text="Couleur", icon='COLOR')
+            box = layout.box()
+            box.label(text="Type de pose", icon='MOD_ARRAY')
+            box.prop(props, "bardage_pose_type", text="")
 
-        col = box.column(align=True)
-        col.prop(props, "exterior_crepi_color_preset", text="")
+            # Info sur le type de pose
+            pose_type_info = {
+                'HORIZONTAL': "Lames horizontales classiques",
+                'VERTICAL': "Lames verticales modernes",
+                'CLAIRE_VOIE': "Espacement large aéré",
+                'CLIN': "Lames superposées (recouvrement)",
+            }
+            if props.bardage_pose_type in pose_type_info:
+                info_box = box.box()
+                info_box.scale_y = 0.7
+                info_box.label(text=pose_type_info[props.bardage_pose_type], icon='INFO')
 
-        # Si couleur custom, afficher le color picker
-        if props.exterior_crepi_color_preset == 'CUSTOM':
-            box.separator()
+            layout.separator()
+
+            box = layout.box()
+            box.label(text="Type de bois", icon='NODE_MATERIAL')
+            box.prop(props, "bardage_material_type", text="")
+
+            layout.separator()
+
+            # === OPTIONS SELON LE TYPE ===
+            if props.bardage_material_type == 'NATUREL':
+                box = layout.box()
+                box.label(text="Bois Naturel", icon='MATERIAL')
+                col = box.column(align=True)
+                col.prop(props, "bardage_wood_species", text="Essence")
+                col.separator()
+                col.prop(props, "bardage_weathering", text="Grisaillement", slider=True)
+
+            elif props.bardage_material_type == 'PEINT':
+                box = layout.box()
+                box.label(text="Bois Peint", icon='BRUSH_DATA')
+                col = box.column(align=True)
+                col.prop(props, "bardage_paint_preset", text="Couleur")
+
+                if props.bardage_paint_preset == 'CUSTOM':
+                    col.separator()
+                    col.prop(props, "bardage_paint_custom_color", text="")
+
+                col.separator()
+                col.prop(props, "bardage_paint_wear", text="Usure", slider=True)
+
+            elif props.bardage_material_type == 'BRULE':
+                box = layout.box()
+                box.label(text="Shou Sugi Ban", icon='SHADERFX')
+                col = box.column(align=True)
+                col.label(text="Bois brûlé japonais")
+                col.separator()
+                col.prop(props, "bardage_burn_intensity", text="Intensité brûlage", slider=True)
+
+                info_box = box.box()
+                info_box.scale_y = 0.7
+                info_box.label(text="Carbonisation + craquelures", icon='INFO')
+
+            layout.separator()
+
+            # === DIMENSIONS LAMES ===
+            box = layout.box()
+            box.label(text="Dimensions lames", icon='MESH_GRID')
             col = box.column(align=True)
-            col.label(text="Couleur personnalisée:", icon='BRUSH_DATA')
-            col.prop(props, "exterior_crepi_custom_color", text="")
-
-        layout.separator()
-
-        # ============================================================
-        # RÉGLAGES AVANCÉS
-        # ============================================================
-
-        box = layout.box()
-        box.label(text="Réglages texture", icon='TEXTURE')
-
-        col = box.column(align=True)
-        col.prop(props, "exterior_crepi_grain_size", text="Taille grain", slider=True)
-        col.prop(props, "exterior_crepi_grain_intensity", text="Intensité", slider=True)
-
-        layout.separator()
-
-        box = layout.box()
-        box.label(text="Vieillissement", icon='SHADERFX')
-
-        col = box.column(align=True)
-        col.prop(props, "exterior_crepi_imperfections", text="Imperfections", slider=True)
-        col.prop(props, "exterior_crepi_aging", text="Âge", slider=True)
-
-        # Info sur les imperfections
-        info_box = box.box()
-        info_box.scale_y = 0.7
-        info_box.label(text="Salissures, taches, mousse, fissures", icon='INFO')
+            col.prop(props, "bardage_plank_width", text="Largeur")
+            col.prop(props, "bardage_gap", text="Espacement")
+            col.separator()
+            col.prop(props, "bardage_variation", text="Variation", slider=True)
 
 
 class HOUSE_PT_elements_panel(Panel):

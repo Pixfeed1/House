@@ -1913,6 +1913,50 @@ class HOUSE_OT_generate_auto(Operator):
             import traceback
             traceback.print_exc()
 
+    def _apply_exterior_bardage(self, wall_obj, props, collection):
+        """Applique un bardage bois extérieur sur un mur"""
+        from .exterior_walls import ExteriorBardage
+
+        print(f"[House] Application bardage bois sur {wall_obj.name}")
+
+        # Déterminer la couleur de peinture si nécessaire
+        custom_color = None
+        if props.bardage_material_type == 'PEINT' and props.bardage_paint_preset == 'CUSTOM':
+            custom_color = tuple(props.bardage_paint_custom_color)
+
+        try:
+            # Créer l'instance de bardage avec tous les paramètres
+            bardage = ExteriorBardage(
+                wall_width=max(wall_obj.dimensions.x, wall_obj.dimensions.y),
+                wall_height=wall_obj.dimensions.z,
+                pose_type=props.bardage_pose_type,
+                material_type=props.bardage_material_type,
+                plank_width=props.bardage_plank_width,
+                plank_thickness=0.020,  # Valeur par défaut
+                gap=props.bardage_gap,
+                bevel_width=0.001,  # Valeur par défaut
+                wood_species=props.bardage_wood_species,
+                weathering=props.bardage_weathering,
+                paint_color_preset=props.bardage_paint_preset,
+                paint_custom_color=custom_color,
+                paint_wear=props.bardage_paint_wear,
+                burn_intensity=props.bardage_burn_intensity,
+                plank_variation=props.bardage_variation,
+                height_variation=0.001,  # Valeur par défaut
+                random_seed=42
+            )
+
+            # Appliquer le bardage
+            # Pour les murs existants, on applique juste le matériau
+            bardage.generate_for_wall(wall_obj, collection)
+
+            print(f"[House] ✅ Bardage {props.bardage_material_type} ({props.bardage_pose_type}) appliqué sur {wall_obj.name}")
+
+        except Exception as e:
+            print(f"[House] ⚠️ Erreur application bardage sur {wall_obj.name}: {e}")
+            import traceback
+            traceback.print_exc()
+
     def _apply_materials(self, context, props, collection, style_config):
         """Applique les matériaux - Les briques 3D sont déjà gérées"""
 
@@ -1946,6 +1990,11 @@ class HOUSE_OT_generate_auto(Operator):
                 # ✅ CRÉPI/ENDUIT EXTÉRIEUR - S'applique aux murs simples ET briques 3D
                 if hasattr(props, 'use_exterior_crepi') and props.use_exterior_crepi:
                     self._apply_exterior_crepi(obj, props)
+
+                # ✅ BARDAGE BOIS EXTÉRIEUR - S'applique aux murs simples ET briques 3D
+                # Note: Si crépi ET bardage sont activés, le bardage remplacera le crépi
+                if hasattr(props, 'use_exterior_bardage') and props.use_exterior_bardage:
+                    self._apply_exterior_bardage(obj, props, collection)
             elif part_type == "roof":
                 obj.data.materials.clear()
                 obj.data.materials.append(roof_mat)

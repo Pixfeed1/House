@@ -762,6 +762,153 @@ class HouseGeneratorProperties(PropertyGroup):
     )
 
     # ============================================================
+    # FINITIONS EXTÉRIEURES - BARDAGE BOIS
+    # ============================================================
+
+    use_exterior_bardage: BoolProperty(
+        name="Utiliser bardage bois",
+        description="Appliquer un bardage bois sur les murs extérieurs",
+        default=False,
+        update=regenerate_house
+    )
+
+    bardage_pose_type: EnumProperty(
+        name="Type de pose",
+        description="Type de pose du bardage",
+        items=[
+            ('HORIZONTAL', "Horizontal", "Lames horizontales classiques", 0),
+            ('VERTICAL', "Vertical", "Lames verticales", 1),
+            ('CLAIRE_VOIE', "Claire-voie", "Espacement large entre lames", 2),
+            ('CLIN', "Clin", "Lames à recouvrement", 3),
+        ],
+        default='HORIZONTAL',
+        update=regenerate_house
+    )
+
+    bardage_material_type: EnumProperty(
+        name="Type de bois",
+        description="Type de matériau du bardage",
+        items=[
+            ('NATUREL', "Bois Naturel", "Douglas/Mélèze vieilli grisé", 0),
+            ('PEINT', "Bois Peint", "Bardage peint style scandinave", 1),
+            ('BRULE', "Shou Sugi Ban", "Bois brûlé japonais", 2),
+        ],
+        default='NATUREL',
+        update=regenerate_house
+    )
+
+    # === Options Bois Naturel ===
+    bardage_wood_species: EnumProperty(
+        name="Essence bois",
+        description="Essence de bois pour bardage naturel",
+        items=[
+            ('DOUGLAS', "Douglas", "Brun rosé, veinures marquées", 0),
+            ('MELEZE', "Mélèze", "Brun orangé, dense", 1),
+            ('CEDRE', "Cèdre Rouge", "Brun rouge chaud", 2),
+            ('PIN', "Pin", "Blond, nœuds visibles", 3),
+            ('CHENE', "Chêne", "Brun doré, grain serré", 4),
+        ],
+        default='DOUGLAS',
+        update=regenerate_house
+    )
+
+    bardage_weathering: FloatProperty(
+        name="Grisaillement",
+        description="Vieillissement naturel (gris argenté)",
+        default=0.3,
+        min=0.0,
+        max=1.0,
+        subtype='FACTOR',
+        update=regenerate_house
+    )
+
+    # === Options Bois Peint ===
+    bardage_paint_preset: EnumProperty(
+        name="Couleur peinture",
+        description="Couleur de peinture prédéfinie",
+        items=[
+            ('CUSTOM', "Personnalisé", "Couleur personnalisée", 0),
+            ('BLANC', "Blanc", "Blanc classique", 1),
+            ('BLANC_CASSE', "Blanc Cassé", "Blanc chaud", 2),
+            ('GRIS_CLAIR', "Gris Clair", "Gris perle", 3),
+            ('GRIS_BLEU', "Gris Bleu", "Gris scandinave", 4),
+            ('GRIS_ANTHRACITE', "Gris Anthracite", "Gris foncé moderne", 5),
+            ('NOIR', "Noir", "Noir profond", 6),
+            ('BLEU_MARINE', "Bleu Marine", "Bleu foncé", 7),
+            ('BLEU_GRIS', "Bleu Gris", "Bleu scandinave", 8),
+            ('VERT_SAUGE', "Vert Sauge", "Vert grisé", 9),
+            ('VERT_FORET', "Vert Forêt", "Vert foncé", 10),
+            ('ROUGE_SUEDOIS', "Rouge Suédois", "Rouge Falun", 11),
+            ('JAUNE_OCRE', "Jaune Ocre", "Ocre scandinave", 12),
+        ],
+        default='GRIS_BLEU',
+        update=regenerate_house
+    )
+
+    bardage_paint_custom_color: FloatVectorProperty(
+        name="Couleur peinture personnalisée",
+        description="Couleur personnalisée pour bardage peint (si preset CUSTOM)",
+        subtype='COLOR',
+        size=4,
+        min=0.0,
+        max=1.0,
+        default=(0.85, 0.82, 0.78, 1.0),
+        update=regenerate_house
+    )
+
+    bardage_paint_wear: FloatProperty(
+        name="Usure peinture",
+        description="Usure et écaillage de la peinture",
+        default=0.15,
+        min=0.0,
+        max=1.0,
+        subtype='FACTOR',
+        update=regenerate_house
+    )
+
+    # === Options Shou Sugi Ban ===
+    bardage_burn_intensity: FloatProperty(
+        name="Intensité brûlage",
+        description="Intensité du brûlage du bois",
+        default=0.7,
+        min=0.3,
+        max=1.0,
+        subtype='FACTOR',
+        update=regenerate_house
+    )
+
+    # === Dimensions lames ===
+    bardage_plank_width: FloatProperty(
+        name="Largeur lame",
+        description="Largeur des lames de bardage",
+        default=0.15,
+        min=0.08,
+        max=0.30,
+        unit='LENGTH',
+        update=regenerate_house
+    )
+
+    bardage_gap: FloatProperty(
+        name="Espacement",
+        description="Espacement entre les lames",
+        default=0.008,
+        min=0.0,
+        max=0.03,
+        unit='LENGTH',
+        update=regenerate_house
+    )
+
+    bardage_variation: FloatProperty(
+        name="Variation lames",
+        description="Variation de teinte entre les lames",
+        default=0.5,
+        min=0.0,
+        max=1.0,
+        subtype='FACTOR',
+        update=regenerate_house
+    )
+
+    # ============================================================
     # PROPRIÉTÉ AJOUTÉE : CHOIX BRIQUES 3D OU SIMPLE MATÉRIAU
     # ============================================================
     
