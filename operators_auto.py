@@ -964,10 +964,11 @@ class HOUSE_OT_generate_auto(Operator):
 
         width = props.house_width
         length = props.house_length
+        num_floors = props.num_floors
         partition_thickness = props.partition_thickness if hasattr(props, 'partition_thickness') else 0.10
 
-        # Créer le générateur
-        layout_gen = RoomLayoutGenerator(width, length, partition_thickness)
+        # Créer le générateur avec support multi-étages
+        layout_gen = RoomLayoutGenerator(width, length, num_floors, partition_thickness)
 
         # Mode AUTO ou MANUAL
         mode = props.room_layout_mode if hasattr(props, 'room_layout_mode') else 'AUTO'
@@ -992,9 +993,7 @@ class HOUSE_OT_generate_auto(Operator):
                 num_bathrooms=props.num_bathrooms
             )
 
-        # Créer les mesh des cloisons
-        # Pour l'instant, seulement pour le rez-de-chaussée
-        # TODO: Supporter multi-étages
+        # Créer les mesh des cloisons pour tous les étages avec portes
         floor_height = props.floor_height
 
         partition_objects = layout_gen.create_partition_meshes(collection, floor_height)
