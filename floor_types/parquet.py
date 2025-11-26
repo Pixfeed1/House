@@ -272,6 +272,30 @@ class ParquetProceduralGenerator:
         elif self.pattern == 'HERRINGBONE':
             self.generate_herringbone(bm, uv_layer)
 
+        # ✅ AJOUT: Chanfreins sur les bords des lames pour les séparer visuellement
+        # Sélectionner toutes les arêtes verticales (bords des lames)
+        edges_to_bevel = []
+        for edge in bm.edges:
+            # Les arêtes verticales ont leurs 2 vertices avec une différence en Z
+            v1, v2 = edge.verts
+            if abs(v1.co.z - v2.co.z) > 0.001:  # Arête verticale
+                edges_to_bevel.append(edge)
+
+        # Appliquer un petit chanfrein pour séparer visuellement les lames
+        if edges_to_bevel:
+            try:
+                bmesh.ops.bevel(
+                    bm,
+                    geom=edges_to_bevel,
+                    offset=0.0005,  # 0.5mm de chanfrein (subtil)
+                    segments=1,
+                    profile=0.5,
+                    affect='EDGES'
+                )
+                print(f"[Parquet] Chanfreins appliqués sur {len(edges_to_bevel)} arêtes")
+            except Exception as e:
+                print(f"[Parquet] Erreur chanfrein: {e}")
+
         return bm
 
 
