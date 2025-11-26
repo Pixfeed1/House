@@ -1861,7 +1861,7 @@ class HOUSE_OT_generate_auto(Operator):
             context.scene.collection.objects.link(light_object)
             light_object.location = (width / 2, length / 2 - 5, total_height + 5)
 
-    def _apply_exterior_crepi(self, wall_obj, props):
+    def _apply_exterior_crepi(self, wall_obj, props, collection):
         """Applique un crépi/enduit extérieur sur un mur"""
         from .exterior_walls import ExteriorCrepi
 
@@ -1897,16 +1897,24 @@ class HOUSE_OT_generate_auto(Operator):
                 random_seed=42
             )
 
-            # Appliquer le matériau crépi
-            mat = crepi.create_plaster_material(f"Crepi_{props.exterior_crepi_type}_{wall_obj.name}")
+            # ✅ CORRECTION : Créer le mesh du crépi avec relief (comme script original)
+            # On passe None pour forcer la création du mesh au lieu d'appliquer juste le shader
+            crepi_obj = crepi.generate_for_wall(
+                wall_obj=None,  # Créer nouveau mesh
+                wall_width=max(wall_obj.dimensions.x, wall_obj.dimensions.y),
+                wall_height=wall_obj.dimensions.z,
+                wall_thickness=0.02,  # Épaisseur du crépi
+                orientation='front'
+            )
 
-            # Remplacer ou ajouter le matériau
-            if len(wall_obj.data.materials) > 0:
-                wall_obj.data.materials[0] = mat
-            else:
-                wall_obj.data.materials.append(mat)
+            # Positionner le crépi devant le mur
+            if crepi_obj:
+                crepi_obj.location = wall_obj.location.copy()
+                # Décaler légèrement vers l'extérieur
+                crepi_obj.location.z += 0.001
+                crepi_obj["house_part"] = "crepi"
 
-            print(f"[House] ✅ Crépi {props.exterior_crepi_type} appliqué sur {wall_obj.name}")
+            print(f"[House] ✅ Crépi {props.exterior_crepi_type} créé avec mesh relief 3D")
 
         except Exception as e:
             print(f"[House] ⚠️ Erreur application crépi sur {wall_obj.name}: {e}")
