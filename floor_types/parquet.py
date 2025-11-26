@@ -357,12 +357,17 @@ class ParquetMassif(FloorTypeBase):
         bpy.ops.mesh.primitive_cube_add(size=1)
         cutter = bpy.context.active_object
         cutter.name = "Parquet_Cutter_Temp"
-        cutter.scale = (width, length, self.THICKNESS * 2)
-        cutter.location = (width / 2, length / 2, height + self.THICKNESS / 2)
+        # ✅ FIX: Le cutter doit couvrir de Z=0 à Z=THICKNESS*2 pour capturer tout le parquet
+        cutter.scale = (width, length, self.THICKNESS * 4)  # Plus large pour être sûr
+        cutter.location = (width / 2, length / 2, self.THICKNESS)  # Centré sur l'épaisseur
         bpy.ops.object.transform_apply(scale=True, location=True)
 
         # Lier l'objet parquet à la scène pour appliquer le Boolean
         bpy.context.collection.objects.link(obj)
+
+        # ✅ FIX: L'objet doit être SÉLECTIONNÉ ET ACTIF pour modifier_apply
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
 
         # Appliquer Boolean (EXACT solver pour meilleure précision)
@@ -371,9 +376,16 @@ class ParquetMassif(FloorTypeBase):
         bool_mod.object = cutter
         bool_mod.solver = 'EXACT'  # Plus précis que FAST, évite l'effet "tétris"
 
-        # Appliquer le modificateur
+        # Appliquer le modificateur avec gestion d'erreur
         bpy.context.view_layer.update()
-        bpy.ops.object.modifier_apply(modifier="Boolean")
+        try:
+            bpy.ops.object.modifier_apply(modifier="Boolean")
+            print(f"[Parquet] ✅ Boolean appliqué avec succès")
+        except Exception as e:
+            print(f"[Parquet] ⚠️ Erreur Boolean (ignorée): {e}")
+            # Supprimer le modifier si l'application échoue
+            if "Boolean" in obj.modifiers:
+                obj.modifiers.remove(obj.modifiers["Boolean"])
 
         # Supprimer le cutter
         bpy.data.objects.remove(cutter)
@@ -457,11 +469,16 @@ class ParquetContrecolle(FloorTypeBase):
         bpy.ops.mesh.primitive_cube_add(size=1)
         cutter = bpy.context.active_object
         cutter.name = "Parquet_Cutter_Temp"
-        cutter.scale = (width, length, self.THICKNESS * 2)
-        cutter.location = (width / 2, length / 2, height + self.THICKNESS / 2)
+        # ✅ FIX: Le cutter doit couvrir de Z=0 à Z=THICKNESS*2 pour capturer tout le parquet
+        cutter.scale = (width, length, self.THICKNESS * 4)
+        cutter.location = (width / 2, length / 2, self.THICKNESS)
         bpy.ops.object.transform_apply(scale=True, location=True)
 
         bpy.context.collection.objects.link(obj)
+
+        # ✅ FIX: L'objet doit être SÉLECTIONNÉ ET ACTIF pour modifier_apply
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
 
         # Appliquer Boolean (EXACT solver pour meilleure précision)
@@ -471,7 +488,13 @@ class ParquetContrecolle(FloorTypeBase):
         bool_mod.solver = 'EXACT'  # Plus précis que FAST, évite l'effet "tétris"
 
         bpy.context.view_layer.update()
-        bpy.ops.object.modifier_apply(modifier="Boolean")
+        try:
+            bpy.ops.object.modifier_apply(modifier="Boolean")
+            print(f"[Parquet Contrecollé] ✅ Boolean appliqué")
+        except Exception as e:
+            print(f"[Parquet Contrecollé] ⚠️ Erreur Boolean: {e}")
+            if "Boolean" in obj.modifiers:
+                obj.modifiers.remove(obj.modifiers["Boolean"])
 
         bpy.data.objects.remove(cutter)
         bpy.context.collection.objects.unlink(obj)
@@ -556,11 +579,16 @@ class Stratifie(FloorTypeBase):
         bpy.ops.mesh.primitive_cube_add(size=1)
         cutter = bpy.context.active_object
         cutter.name = "Parquet_Cutter_Temp"
-        cutter.scale = (width, length, self.THICKNESS * 2)
-        cutter.location = (width / 2, length / 2, height + self.THICKNESS / 2)
+        # ✅ FIX: Le cutter doit couvrir de Z=0 à Z=THICKNESS*2 pour capturer tout le parquet
+        cutter.scale = (width, length, self.THICKNESS * 4)
+        cutter.location = (width / 2, length / 2, self.THICKNESS)
         bpy.ops.object.transform_apply(scale=True, location=True)
 
         bpy.context.collection.objects.link(obj)
+
+        # ✅ FIX: L'objet doit être SÉLECTIONNÉ ET ACTIF pour modifier_apply
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
 
         # Appliquer Boolean (EXACT solver pour meilleure précision)
@@ -570,7 +598,13 @@ class Stratifie(FloorTypeBase):
         bool_mod.solver = 'EXACT'  # Plus précis que FAST, évite l'effet "tétris"
 
         bpy.context.view_layer.update()
-        bpy.ops.object.modifier_apply(modifier="Boolean")
+        try:
+            bpy.ops.object.modifier_apply(modifier="Boolean")
+            print(f"[Stratifié] ✅ Boolean appliqué")
+        except Exception as e:
+            print(f"[Stratifié] ⚠️ Erreur Boolean: {e}")
+            if "Boolean" in obj.modifiers:
+                obj.modifiers.remove(obj.modifiers["Boolean"])
 
         bpy.data.objects.remove(cutter)
         bpy.context.collection.objects.unlink(obj)

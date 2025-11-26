@@ -181,18 +181,19 @@ class FloorTypeBase:
         bm = bmesh.new()
 
         try:
-            # Créer 4 vertices pour le rectangle
-            v1 = bm.verts.new((0, 0, 0))
-            v2 = bm.verts.new((width, 0, 0))
-            v3 = bm.verts.new((width, length, 0))
-            v4 = bm.verts.new((0, length, 0))
+            # ✅ FIX: Créer les vertices à Z=THICKNESS (face supérieure)
+            # pour que l'extrusion vers le bas crée le sol de Z=0 à Z=THICKNESS
+            v1 = bm.verts.new((0, 0, self.THICKNESS))
+            v2 = bm.verts.new((width, 0, self.THICKNESS))
+            v3 = bm.verts.new((width, length, self.THICKNESS))
+            v4 = bm.verts.new((0, length, self.THICKNESS))
 
             bm.verts.ensure_lookup_table()
 
-            # Créer la face
+            # Créer la face (supérieure)
             face = bm.faces.new([v1, v2, v3, v4])
 
-            # Extruder pour donner de l'épaisseur
+            # Extruder vers le bas pour créer l'épaisseur (de THICKNESS vers 0)
             ret = bmesh.ops.extrude_face_region(bm, geom=[face])
             extruded_verts = [v for v in ret["geom"] if isinstance(v, bmesh.types.BMVert)]
             bmesh.ops.translate(bm, verts=extruded_verts, vec=(0, 0, -self.THICKNESS))
@@ -204,7 +205,7 @@ class FloorTypeBase:
         finally:
             bm.free()
 
-        # Créer l'objet
+        # Créer l'objet - le sol va maintenant de Z=0 à Z=THICKNESS
         obj = bpy.data.objects.new(f"{self.FLOOR_NAME}_Obj", mesh)
         obj.location.z = height
 
@@ -277,10 +278,11 @@ class FloorTypeBase:
 
     def _add_plank(self, bm, x, y, length, width):
         """Ajoute une planche au bmesh"""
-        v1 = bm.verts.new((x, y, 0))
-        v2 = bm.verts.new((x + length, y, 0))
-        v3 = bm.verts.new((x + length, y + width, 0))
-        v4 = bm.verts.new((x, y + width, 0))
+        # ✅ FIX: Créer à Z=THICKNESS pour que le sol soit AU-DESSUS de Z=0
+        v1 = bm.verts.new((x, y, self.THICKNESS))
+        v2 = bm.verts.new((x + length, y, self.THICKNESS))
+        v3 = bm.verts.new((x + length, y + width, self.THICKNESS))
+        v4 = bm.verts.new((x, y + width, self.THICKNESS))
 
         bm.verts.ensure_lookup_table()
         bm.faces.new([v1, v2, v3, v4])
@@ -344,10 +346,11 @@ class FloorTypeBase:
 
     def _add_tile(self, bm, x, y, size_x, size_y):
         """Ajoute une dalle au bmesh"""
-        v1 = bm.verts.new((x, y, 0))
-        v2 = bm.verts.new((x + size_x, y, 0))
-        v3 = bm.verts.new((x + size_x, y + size_y, 0))
-        v4 = bm.verts.new((x, y + size_y, 0))
+        # ✅ FIX: Créer à Z=THICKNESS pour que le sol soit AU-DESSUS de Z=0
+        v1 = bm.verts.new((x, y, self.THICKNESS))
+        v2 = bm.verts.new((x + size_x, y, self.THICKNESS))
+        v3 = bm.verts.new((x + size_x, y + size_y, self.THICKNESS))
+        v4 = bm.verts.new((x, y + size_y, self.THICKNESS))
 
         bm.verts.ensure_lookup_table()
         bm.faces.new([v1, v2, v3, v4])
