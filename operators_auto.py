@@ -1984,6 +1984,60 @@ class HOUSE_OT_generate_auto(Operator):
             import traceback
             traceback.print_exc()
 
+    def _apply_exterior_pierre(self, wall_obj, props, collection):
+        """Applique un parement pierre extérieur sur un mur"""
+        from .exterior_walls import ExteriorPierreParement
+
+        print(f"[House] Application pierre de parement sur {wall_obj.name}")
+
+        # Déterminer la couleur custom si nécessaire
+        custom_color = None
+        if props.pierre_stone_type == 'CUSTOM':
+            custom_color = tuple(props.pierre_custom_color)
+
+        try:
+            # Créer l'instance de pierre de parement avec tous les paramètres
+            pierre = ExteriorPierreParement(
+                wall_width=max(wall_obj.dimensions.x, wall_obj.dimensions.y),
+                wall_height=wall_obj.dimensions.z,
+                wall_thickness=0.25,  # Épaisseur du parement
+                layout_type=props.pierre_layout_type,
+                stone_height=props.pierre_stone_height,
+                stone_width_min=props.pierre_stone_width_min,
+                stone_width_max=props.pierre_stone_width_max,
+                stone_depth=props.pierre_stone_depth,
+                joint_width=props.pierre_joint_width,
+                joint_depth=props.pierre_joint_depth,
+                stone_type=props.pierre_stone_type,
+                custom_color=custom_color if custom_color else (0.72, 0.68, 0.60),
+                color_variation=props.pierre_color_variation,
+                brightness_variation=props.pierre_brightness_variation,
+                texture_variation=props.pierre_texture_variation,
+                vein_amount=props.pierre_vein_amount,
+                weathering=props.pierre_weathering,
+                moss=props.pierre_moss,
+                dirt=props.pierre_dirt,
+                random_seed=42
+            )
+
+            # ✅ Créer le mesh des pierres de parement
+            # On passe None pour forcer la création du mesh au lieu d'appliquer juste le matériau
+            pierre_obj = pierre.generate_for_wall(None, collection)
+
+            # Positionner le parement devant le mur
+            if pierre_obj:
+                pierre_obj.location = wall_obj.location.copy()
+                # Décaler légèrement vers l'extérieur pour éviter z-fighting
+                pierre_obj.location.z += 0.001
+                pierre_obj["house_part"] = "pierre_parement"
+
+            print(f"[House] ✅ Pierre de parement {props.pierre_stone_type} ({props.pierre_layout_type}) créée avec mesh de pierres")
+
+        except Exception as e:
+            print(f"[House] ⚠️ Erreur application pierre sur {wall_obj.name}: {e}")
+            import traceback
+            traceback.print_exc()
+
     def _apply_materials(self, context, props, collection, style_config):
         """Applique les matériaux - Les briques 3D sont déjà gérées"""
 
@@ -2022,6 +2076,11 @@ class HOUSE_OT_generate_auto(Operator):
                 # Note: Si crépi ET bardage sont activés, le bardage remplacera le crépi
                 if hasattr(props, 'use_exterior_bardage') and props.use_exterior_bardage:
                     self._apply_exterior_bardage(obj, props, collection)
+
+                # ✅ PIERRE DE PAREMENT EXTÉRIEUR - S'applique aux murs simples ET briques 3D
+                # Note: Si plusieurs finitions activées, la dernière remplace les précédentes
+                if hasattr(props, 'use_exterior_pierre') and props.use_exterior_pierre:
+                    self._apply_exterior_pierre(obj, props, collection)
             elif part_type == "roof":
                 obj.data.materials.clear()
                 obj.data.materials.append(roof_mat)

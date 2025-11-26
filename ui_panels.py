@@ -441,6 +441,93 @@ class HOUSE_PT_exterior_finish_panel(Panel):
             col.separator()
             col.prop(props, "bardage_variation", text="Variation", slider=True)
 
+        # ============================================================
+        # PIERRE DE PAREMENT
+        # ============================================================
+
+        layout.separator()
+        layout.prop(props, "use_exterior_pierre", text="Activer pierre de parement", toggle=True)
+
+        if props.use_exterior_pierre:
+            layout.separator()
+
+            box = layout.box()
+            box.label(text="Type de pose", icon='MOD_BUILD')
+            box.prop(props, "pierre_layout_type", text="")
+
+            # Info sur le type de pose
+            pierre_pose_info = {
+                'ASSISE_REGULIER': "Rangées régulières, pierres uniformes",
+                'ASSISE_IRREGULIER': "Rangées avec hauteurs variables",
+                'OPUS_INCERTUM': "Pose aléatoire, aspect romain",
+                'MOELLONS': "Pierres brutes équarries",
+                'PIERRE_SECHE': "Sans mortier, joints minces",
+            }
+            if props.pierre_layout_type in pierre_pose_info:
+                info_box = box.box()
+                info_box.scale_y = 0.7
+                info_box.label(text=pierre_pose_info[props.pierre_layout_type], icon='INFO')
+
+            layout.separator()
+
+            box = layout.box()
+            box.label(text="Type de pierre", icon='NODE_MATERIAL')
+            box.prop(props, "pierre_stone_type", text="")
+
+            if props.pierre_stone_type == 'CUSTOM':
+                box.separator()
+                col = box.column(align=True)
+                col.label(text="Couleur personnalisée:", icon='BRUSH_DATA')
+                col.prop(props, "pierre_custom_color", text="")
+
+            layout.separator()
+
+            # === DIMENSIONS ===
+            box = layout.box()
+            box.label(text="Dimensions pierres", icon='MESH_CUBE')
+            col = box.column(align=True)
+            col.prop(props, "pierre_stone_height", text="Hauteur")
+            row = col.row(align=True)
+            row.prop(props, "pierre_stone_width_min", text="Largeur min")
+            row.prop(props, "pierre_stone_width_max", text="max")
+            col.separator()
+            col.prop(props, "pierre_stone_depth", text="Relief")
+
+            layout.separator()
+
+            # === JOINTS ===
+            box = layout.box()
+            box.label(text="Joints", icon='MESH_GRID')
+            col = box.column(align=True)
+            col.prop(props, "pierre_joint_width", text="Largeur")
+            col.prop(props, "pierre_joint_depth", text="Profondeur")
+
+            layout.separator()
+
+            # === VARIATIONS ===
+            box = layout.box()
+            box.label(text="Variations par pierre", icon='MOD_NOISE')
+            col = box.column(align=True)
+            col.prop(props, "pierre_color_variation", text="Couleur", slider=True)
+            col.prop(props, "pierre_brightness_variation", text="Luminosité", slider=True)
+            col.prop(props, "pierre_texture_variation", text="Texture", slider=True)
+            col.separator()
+            col.prop(props, "pierre_vein_amount", text="Veines", slider=True)
+
+            layout.separator()
+
+            # === VIEILLISSEMENT ===
+            box = layout.box()
+            box.label(text="Vieillissement", icon='TIME')
+            col = box.column(align=True)
+            col.prop(props, "pierre_weathering", text="Patine", slider=True)
+            col.prop(props, "pierre_dirt", text="Salissures", slider=True)
+            col.prop(props, "pierre_moss", text="Mousse", slider=True)
+
+            info_box = box.box()
+            info_box.scale_y = 0.7
+            info_box.label(text="Patine naturelle, salissures, lichen", icon='INFO')
+
 
 class HOUSE_PT_elements_panel(Panel):
     """Panneau pour les éléments additionnels"""

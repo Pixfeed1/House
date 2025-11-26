@@ -909,6 +909,194 @@ class HouseGeneratorProperties(PropertyGroup):
     )
 
     # ============================================================
+    # FINITIONS EXTÉRIEURES - PIERRE DE PAREMENT
+    # ============================================================
+
+    use_exterior_pierre: BoolProperty(
+        name="Utiliser pierre de parement",
+        description="Appliquer un parement en pierre naturelle sur les murs extérieurs",
+        default=False,
+        update=regenerate_house
+    )
+
+    pierre_layout_type: EnumProperty(
+        name="Type de pose",
+        description="Type d'assemblage des pierres",
+        items=[
+            ('ASSISE_REGULIER', "Assisé Régulier", "Rangées régulières, pierres de même hauteur", 0),
+            ('ASSISE_IRREGULIER', "Assisé Irrégulier", "Rangées avec hauteurs variables", 1),
+            ('OPUS_INCERTUM', "Opus Incertum", "Pierres irrégulières, pose aléatoire", 2),
+            ('MOELLONS', "Moellons", "Pierres grossièrement équarries", 3),
+            ('PIERRE_SECHE', "Pierre Sèche", "Sans mortier, joints fins", 4),
+        ],
+        default='ASSISE_REGULIER',
+        update=regenerate_house
+    )
+
+    pierre_stone_type: EnumProperty(
+        name="Type de pierre",
+        description="Type de pierre naturelle",
+        items=[
+            ('CALCAIRE', "Calcaire", "Pierre calcaire claire, traditionnelle", 0),
+            ('CALCAIRE_DORE', "Calcaire Doré", "Pierre dorée du Luberon", 1),
+            ('GRANIT', "Granit", "Granit gris moucheté", 2),
+            ('GRANIT_ROSE', "Granit Rose", "Granit rose de Bretagne", 3),
+            ('GRES', "Grès", "Grès beige/rosé", 4),
+            ('ARDOISE', "Ardoise", "Ardoise gris-bleu foncé", 5),
+            ('MEULIERE', "Meulière", "Pierre meulière rustique", 6),
+            ('PIERRE_TAILLE', "Pierre de Taille", "Pierre taillée noble", 7),
+            ('CUSTOM', "Personnalisé", "Couleur personnalisée", 8),
+        ],
+        default='CALCAIRE',
+        update=regenerate_house
+    )
+
+    pierre_custom_color: FloatVectorProperty(
+        name="Couleur personnalisée",
+        description="Couleur personnalisée de la pierre (si CUSTOM)",
+        subtype='COLOR',
+        size=3,
+        min=0.0,
+        max=1.0,
+        default=(0.72, 0.68, 0.60),
+        update=regenerate_house
+    )
+
+    # === Dimensions des pierres ===
+    pierre_stone_height: FloatProperty(
+        name="Hauteur pierre",
+        description="Hauteur des pierres",
+        default=0.15,
+        min=0.05,
+        max=0.40,
+        unit='LENGTH',
+        update=regenerate_house
+    )
+
+    pierre_stone_width_min: FloatProperty(
+        name="Largeur min",
+        description="Largeur minimum des pierres",
+        default=0.20,
+        min=0.10,
+        max=0.50,
+        unit='LENGTH',
+        update=regenerate_house
+    )
+
+    pierre_stone_width_max: FloatProperty(
+        name="Largeur max",
+        description="Largeur maximum des pierres",
+        default=0.45,
+        min=0.15,
+        max=0.80,
+        unit='LENGTH',
+        update=regenerate_house
+    )
+
+    pierre_stone_depth: FloatProperty(
+        name="Relief pierre",
+        description="Profondeur du relief des pierres",
+        default=0.015,
+        min=0.0,
+        max=0.05,
+        unit='LENGTH',
+        update=regenerate_house
+    )
+
+    # === Joints ===
+    pierre_joint_width: FloatProperty(
+        name="Largeur joint",
+        description="Largeur des joints de mortier",
+        default=0.015,
+        min=0.005,
+        max=0.04,
+        unit='LENGTH',
+        update=regenerate_house
+    )
+
+    pierre_joint_depth: FloatProperty(
+        name="Profondeur joint",
+        description="Profondeur des joints",
+        default=0.008,
+        min=0.0,
+        max=0.02,
+        unit='LENGTH',
+        update=regenerate_house
+    )
+
+    # === Variations par pierre ===
+    pierre_color_variation: FloatProperty(
+        name="Variation couleur",
+        description="Variation de teinte entre les pierres",
+        default=0.35,
+        min=0.0,
+        max=0.6,
+        subtype='FACTOR',
+        update=regenerate_house
+    )
+
+    pierre_brightness_variation: FloatProperty(
+        name="Variation luminosité",
+        description="Pierres plus claires ou plus foncées",
+        default=0.3,
+        min=0.0,
+        max=0.5,
+        subtype='FACTOR',
+        update=regenerate_house
+    )
+
+    pierre_texture_variation: FloatProperty(
+        name="Variation texture",
+        description="Certaines pierres plus lisses, d'autres plus rugueuses",
+        default=0.4,
+        min=0.0,
+        max=1.0,
+        subtype='FACTOR',
+        update=regenerate_house
+    )
+
+    pierre_vein_amount: FloatProperty(
+        name="Veines/Inclusions",
+        description="Veines et inclusions dans certaines pierres",
+        default=0.2,
+        min=0.0,
+        max=1.0,
+        subtype='FACTOR',
+        update=regenerate_house
+    )
+
+    # === Vieillissement ===
+    pierre_weathering: FloatProperty(
+        name="Patine/Vieillissement",
+        description="Patine naturelle et vieillissement",
+        default=0.2,
+        min=0.0,
+        max=1.0,
+        subtype='FACTOR',
+        update=regenerate_house
+    )
+
+    pierre_moss: FloatProperty(
+        name="Mousse",
+        description="Mousse et lichen sur les pierres",
+        default=0.0,
+        min=0.0,
+        max=1.0,
+        subtype='FACTOR',
+        update=regenerate_house
+    )
+
+    pierre_dirt: FloatProperty(
+        name="Salissures",
+        description="Salissures et traces d'eau",
+        default=0.1,
+        min=0.0,
+        max=1.0,
+        subtype='FACTOR',
+        update=regenerate_house
+    )
+
+    # ============================================================
     # PROPRIÉTÉ AJOUTÉE : CHOIX BRIQUES 3D OU SIMPLE MATÉRIAU
     # ============================================================
     
