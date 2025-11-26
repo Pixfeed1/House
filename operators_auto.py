@@ -2059,6 +2059,8 @@ class HOUSE_OT_generate_auto(Operator):
                 # Décaler légèrement vers l'extérieur
                 crepi_obj.location.z += 0.001
                 crepi_obj["house_part"] = "crepi"
+                # ✅ FIX: Lier l'objet à la collection (manquait !)
+                collection.objects.link(crepi_obj)
 
             print(f"[House] ✅ Crépi {props.exterior_crepi_type} créé avec mesh relief 3D")
 
@@ -2204,7 +2206,7 @@ class HOUSE_OT_generate_auto(Operator):
 
                 # ✅ CRÉPI/ENDUIT EXTÉRIEUR - S'applique aux murs simples ET briques 3D
                 if hasattr(props, 'use_exterior_crepi') and props.use_exterior_crepi:
-                    self._apply_exterior_crepi(obj, props)
+                    self._apply_exterior_crepi(obj, props, collection)
 
                 # ✅ BARDAGE BOIS EXTÉRIEUR - S'applique aux murs simples ET briques 3D
                 # Note: Si crépi ET bardage sont activés, le bardage remplacera le crépi
