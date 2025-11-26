@@ -153,12 +153,11 @@ class HOUSE_OT_generate_auto(Operator):
             progress += 10
             wm.progress_update(progress)
 
-            # ✅ PLAFONDS entre les étages (si plusieurs étages)
-            if props.num_floors > 1:
-                print("[House] Plafonds...")
-                self._generate_ceilings(context, props, house_collection)
-                progress += 5
-                wm.progress_update(progress)
+            # ✅ PLAFONDS : Entre les étages + plafond final sous le toit (TOUJOURS créé)
+            print("[House] Plafonds...")
+            self._generate_ceilings(context, props, house_collection)
+            progress += 5
+            wm.progress_update(progress)
 
             # ✅ NOUVEAU: Finitions murales intérieures (si activé)
             if hasattr(props, 'use_interior_walls_system') and props.use_interior_walls_system:
@@ -862,10 +861,11 @@ class HOUSE_OT_generate_auto(Operator):
         return floors
 
     def _generate_ceilings(self, context, props, collection):
-        """Génère les plafonds entre les étages
+        """Génère les plafonds entre les étages ET sous le toit
 
-        Un plafond est créé pour chaque étage SAUF le dernier (qui a le toit).
-        Le plafond est positionné juste en dessous de la hauteur de l'étage suivant.
+        Un plafond est créé pour chaque étage Y COMPRIS le dernier (sous le toit).
+        Le plafond est positionné juste en dessous de la hauteur de l'étage suivant,
+        ou sous le toit pour le dernier étage.
         """
         width = props.house_width
         length = props.house_length
@@ -873,12 +873,24 @@ class HOUSE_OT_generate_auto(Operator):
 
         ceilings = []
 
-        print(f"[House] Génération de {props.num_floors - 1} plafond(s)")
+        print(f"[House] Génération de {props.num_floors} plafond(s) (incluant sous toit)")
 
-        # Générer un plafond pour chaque étage sauf le dernier
-        for floor_num in range(props.num_floors - 1):
-            # Position du plafond : juste sous le plancher de l'étage supérieur
-            ceiling_z = (floor_num + 1) * props.floor_height - ceiling_thickness / 2
+        # ✅ CORRECTION: Générer un plafond pour CHAQUE étage, y compris le dernier
+        for floor_num in range(props.num_floors):
+            # Position du plafond
+            if floor_num < props.num_floors - 1:
+                # Plafonds intermédiaires : juste sous le plancher de l'étage supérieur
+                ceiling_z = (floor_num + 1) * props.floor_height - ceiling_thickness / 2
+                ceiling_type = "entre étages"
+            else:
+                # ✅ NOUVEAU: Plafond final sous le toit
+                # Utiliser la hauteur réelle des murs si disponible (briques 3D)
+                if hasattr(self, 'real_wall_height') and self.real_wall_height:
+                    ceiling_z = self.real_wall_height - ceiling_thickness / 2 - 0.01
+                    ceiling_type = "sous toit (briques 3D)"
+                else:
+                    ceiling_z = props.num_floors * props.floor_height - ceiling_thickness / 2 - 0.01
+                    ceiling_type = "sous toit"
 
             # Utiliser les mêmes dimensions que les sols (avec inset)
             inset_width = width * FLOOR_INSET
@@ -898,7 +910,7 @@ class HOUSE_OT_generate_auto(Operator):
 
             ceilings.append(ceiling)
 
-            print(f"[House] Plafond {floor_num} créé à Z={ceiling_z:.3f}m")
+            print(f"[House] Plafond {floor_num} créé à Z={ceiling_z:.3f}m ({ceiling_type})")
 
         return ceilings
 
