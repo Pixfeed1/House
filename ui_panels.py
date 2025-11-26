@@ -618,25 +618,77 @@ class HOUSE_PT_rooms_panel(Panel):
     bl_category = 'House'
     bl_parent_id = "HOUSE_PT_main_panel"
     bl_options = {'DEFAULT_CLOSED'}
-    
+
     def draw(self, context):
         layout = self.layout
         props = context.scene.house_generator
-        
-        layout.use_property_split = True
-        layout.use_property_decorate = False
-        
-        col = layout.column(align=True)
-        col.prop(props, "num_rooms", text="Pièces principales")
-        
+
+        layout.use_property_split = False
+
+        # === ACTIVATION ===
+        layout.prop(props, "use_room_layout", text="Activer distribution", toggle=True)
+
+        if not props.use_room_layout:
+            # Afficher un message informatif
+            box = layout.box()
+            box.label(text="Activez pour générer les cloisons", icon='INFO')
+            box.label(text="et créer des pièces séparées")
+            return
+
         layout.separator()
-        
-        col = layout.column(align=True)
-        col.prop(props, "include_kitchen", text="Cuisine")
-        col.prop(props, "include_bathroom", text="Salle de bain")
-        
-        if props.include_bathroom:
-            col.prop(props, "num_bathrooms", text="Nombre SDB")
+
+        # === MODE ===
+        box = layout.box()
+        box.label(text="Mode de distribution", icon='MOD_BUILD')
+        box.prop(props, "room_layout_mode", text="")
+
+        layout.separator()
+
+        # === OPTIONS SELON LE MODE ===
+        if props.room_layout_mode == 'AUTO':
+            # Mode automatique
+            box = layout.box()
+            box.label(text="Configuration automatique", icon='AUTO')
+
+            col = box.column(align=True)
+            col.prop(props, "num_rooms", text="Pièces principales")
+
+            col.separator()
+            col.prop(props, "include_kitchen", text="Cuisine", toggle=True)
+            col.prop(props, "include_bathroom", text="Salle de bain", toggle=True)
+
+            if props.include_bathroom:
+                col.prop(props, "num_bathrooms", text="Nombre SDB")
+
+            # Info sur la distribution
+            info_box = box.box()
+            info_box.scale_y = 0.8
+            info_box.label(text=f"Distribution: T{props.num_rooms}", icon='HOME')
+
+            if props.num_rooms == 1:
+                info_box.label(text="→ Studio avec SDB")
+            elif props.num_rooms == 2:
+                info_box.label(text="→ Salon + 1 chambre")
+            elif props.num_rooms == 3:
+                info_box.label(text="→ Salon + 2 chambres")
+            elif props.num_rooms == 4:
+                info_box.label(text="→ Salon + 3 chambres")
+            else:
+                info_box.label(text=f"→ Salon + {props.num_rooms - 1} chambres")
+
+        else:
+            # Mode manuel
+            box = layout.box()
+            box.label(text="Configuration manuelle", icon='HAND')
+            box.label(text="Fonctionnalité en développement", icon='INFO')
+            box.label(text="Utilisez le mode AUTO pour l'instant")
+
+        layout.separator()
+
+        # === OPTIONS COMMUNES ===
+        box = layout.box()
+        box.label(text="Options cloisons", icon='MESH_GRID')
+        box.prop(props, "partition_thickness", text="Épaisseur")
 
 
 class HOUSE_PT_flooring_panel(Panel):

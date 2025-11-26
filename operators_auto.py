@@ -26,6 +26,9 @@ from .gutters import GuttersGenerator
 from .interior_walls import InteriorWallFinishManager
 from .interior_walls.paint_colors import get_paint_color
 
+# Import du système de distribution des pièces
+from .room_layout import RoomLayoutGenerator
+
 # ============================================================
 # MODE DEBUG (activer pour logs détaillés)
 # ============================================================
@@ -158,6 +161,13 @@ class HOUSE_OT_generate_auto(Operator):
             self._generate_ceilings(context, props, house_collection)
             progress += 5
             wm.progress_update(progress)
+
+            # ✅ NOUVEAU: Distribution des pièces (cloisons intérieures)
+            if hasattr(props, 'use_room_layout') and props.use_room_layout:
+                print("[House] Distribution des pièces (cloisons)...")
+                self._generate_room_partitions(context, props, house_collection)
+                progress += 5
+                wm.progress_update(progress)
 
             # ✅ NOUVEAU: Finitions murales intérieures (si activé)
             if hasattr(props, 'use_interior_walls_system') and props.use_interior_walls_system:
@@ -942,6 +952,64 @@ class HOUSE_OT_generate_auto(Operator):
             obj.data.materials.append(mat)
         else:
             obj.data.materials[0] = mat
+
+    def _generate_room_partitions(self, context, props, collection):
+        """Génère les cloisons intérieures pour créer des pièces
+
+        ✅ NOUVEAU SYSTÈME: Utilise room_layout.py pour générer la distribution
+        """
+        if not (hasattr(props, 'use_room_layout') and props.use_room_layout):
+            print("[House] Système de distribution des pièces désactivé")
+            return []
+
+        width = props.house_width
+        length = props.house_length
+        partition_thickness = props.partition_thickness if hasattr(props, 'partition_thickness') else 0.10
+
+        # Créer le générateur
+        layout_gen = RoomLayoutGenerator(width, length, partition_thickness)
+
+        # Mode AUTO ou MANUAL
+        mode = props.room_layout_mode if hasattr(props, 'room_layout_mode') else 'AUTO'
+
+        if mode == 'AUTO':
+            # Distribution automatique intelligente
+            print(f"[House] Mode AUTO: {props.num_rooms} pièces")
+
+            partitions_specs = layout_gen.generate_auto_layout(
+                num_rooms=props.num_rooms,
+                include_kitchen=props.include_kitchen,
+                include_bathroom=props.include_bathroom,
+                num_bathrooms=props.num_bathrooms
+            )
+        else:
+            # Mode manuel (pour l'instant vide, à implémenter)
+            print("[House] Mode MANUAL: non implémenté, utilisation AUTO par défaut")
+            partitions_specs = layout_gen.generate_auto_layout(
+                num_rooms=props.num_rooms,
+                include_kitchen=props.include_kitchen,
+                include_bathroom=props.include_bathroom,
+                num_bathrooms=props.num_bathrooms
+            )
+
+        # Créer les mesh des cloisons
+        # Pour l'instant, seulement pour le rez-de-chaussée
+        # TODO: Supporter multi-étages
+        floor_height = props.floor_height
+
+        partition_objects = layout_gen.create_partition_meshes(collection, floor_height)
+
+        # Appliquer matériau simple aux cloisons
+        partition_mat = self._get_or_create_material("House_Partition", (0.95, 0.95, 0.92))
+
+        for obj in partition_objects:
+            if obj.data.materials:
+                obj.data.materials[0] = partition_mat
+            else:
+                obj.data.materials.append(partition_mat)
+
+        print(f"[House] ✅ {len(partition_objects)} cloisons créées")
+        return partition_objects
 
     def _generate_interior_wall_finishes(self, context, props, collection):
         """Génère les finitions murales intérieures (peinture, papier peint, etc.)

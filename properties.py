@@ -535,6 +535,39 @@ class HouseGeneratorProperties(PropertyGroup):
         update=regenerate_house
     )
 
+    # === Options de génération ===
+    use_room_layout: BoolProperty(
+        name="Activer distribution des pièces",
+        description="Générer automatiquement les cloisons intérieures pour créer des pièces",
+        default=False,
+        update=regenerate_house
+    )
+
+    room_layout_mode: EnumProperty(
+        name="Mode de distribution",
+        description="Mode de génération des cloisons",
+        items=[
+            ('AUTO', "Automatique", "Distribution intelligente basée sur le nombre de pièces", 0),
+            ('MANUAL', "Manuel", "Définir manuellement les positions des cloisons", 1),
+        ],
+        default='AUTO',
+        update=regenerate_house
+    )
+
+    partition_thickness: FloatProperty(
+        name="Épaisseur cloisons",
+        description="Épaisseur des murs intérieurs/cloisons",
+        default=0.10,
+        min=0.05,
+        max=0.20,
+        unit='LENGTH',
+        update=regenerate_house
+    )
+
+    # === Mode manuel : liste des cloisons ===
+    # Note: Pour le mode manuel, on utilisera un système de collection items
+    # ou un fichier JSON externe pour définir les cloisons précisément
+
     # ============================================================
     # QUALITÉ GLOBALE
     # ============================================================
