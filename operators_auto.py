@@ -1860,36 +1860,92 @@ class HOUSE_OT_generate_auto(Operator):
             light_object = bpy.data.objects.new(name="House_Light", object_data=light_data)
             context.scene.collection.objects.link(light_object)
             light_object.location = (width / 2, length / 2 - 5, total_height + 5)
-    
+
+    def _apply_exterior_crepi(self, wall_obj, props):
+        """Applique un crépi/enduit extérieur sur un mur"""
+        from .exterior_walls import ExteriorCrepi
+
+        print(f"[House] Application crépi/enduit sur {wall_obj.name}")
+
+        # Déterminer la couleur du crépi
+        custom_color = None
+        color_preset = props.exterior_crepi_color_preset
+        if props.exterior_crepi_color_preset == 'CUSTOM':
+            custom_color = tuple(props.exterior_crepi_custom_color)  # Convert to tuple
+
+        # Calculer les imperfections individuelles à partir du slider global
+        imperf = props.exterior_crepi_imperfections
+        dirt = imperf * 0.4  # 40% du slider pour salissures
+        water_stains = imperf * 0.3  # 30% pour traces d'eau
+        moss = imperf * 0.15  # 15% pour mousse
+        cracks = imperf * 0.15  # 15% pour fissures
+
+        try:
+            # Créer l'instance de crépi avec tous les paramètres
+            crepi = ExteriorCrepi(
+                plaster_type=props.exterior_crepi_type,
+                color_preset=color_preset,
+                custom_color=custom_color,
+                grain_size=props.exterior_crepi_grain_size * 0.5,  # Adapter échelle
+                grain_intensity=props.exterior_crepi_grain_intensity * 0.5,
+                color_variation=0.08,  # Valeur par défaut
+                dirt=dirt,
+                water_stains=water_stains,
+                moss=moss,
+                cracks=cracks,
+                aging=props.exterior_crepi_aging,
+                random_seed=42
+            )
+
+            # Appliquer le matériau crépi
+            mat = crepi.create_plaster_material(f"Crepi_{props.exterior_crepi_type}_{wall_obj.name}")
+
+            # Remplacer ou ajouter le matériau
+            if len(wall_obj.data.materials) > 0:
+                wall_obj.data.materials[0] = mat
+            else:
+                wall_obj.data.materials.append(mat)
+
+            print(f"[House] ✅ Crépi {props.exterior_crepi_type} appliqué sur {wall_obj.name}")
+
+        except Exception as e:
+            print(f"[House] ⚠️ Erreur application crépi sur {wall_obj.name}: {e}")
+            import traceback
+            traceback.print_exc()
+
     def _apply_materials(self, context, props, collection, style_config):
         """Applique les matériaux - Les briques 3D sont déjà gérées"""
-        
+
         # Les briques 3D ont DÉJÀ leur matériau appliqué dans brick_geometry
         # On ne touche PAS aux briques ici
-        
+
         user_changed_wall = not self._colors_are_default(props.wall_material_color, DEFAULT_WALL_COLOR)
         user_changed_roof = not self._colors_are_default(props.roof_material_color, DEFAULT_ROOF_COLOR)
         user_changed_floor = not self._colors_are_default(props.floor_material_color, DEFAULT_FLOOR_COLOR)
-        
+
         wall_color = props.wall_material_color if user_changed_wall else style_config.get('wall_color', props.wall_material_color)
         roof_color = props.roof_material_color if user_changed_roof else style_config.get('roof_color', props.roof_material_color)
         floor_color = props.floor_material_color if user_changed_floor else style_config.get('floor_color', props.floor_material_color)
-        
+
         wall_mat = self._get_or_create_material("House_Wall", wall_color)
         roof_mat = self._get_or_create_material("House_Roof", roof_color)
         floor_mat = self._get_or_create_material("House_Floor", floor_color)
         glass_mat = self._get_or_create_glass_material("House_Glass")
-        
+
         for obj in collection.objects:
             if obj.type != 'MESH' or obj.hide_render:
                 continue
-            
+
             part_type = obj.get("house_part", None)
-            
+
             if part_type == "wall":
                 # Murs simples uniquement (pas les briques qui ont déjà leur matériau)
                 if props.wall_construction_type == 'SIMPLE' and len(obj.data.materials) == 0:
                     obj.data.materials.append(wall_mat)
+
+                # ✅ CRÉPI/ENDUIT EXTÉRIEUR - S'applique aux murs simples ET briques 3D
+                if hasattr(props, 'use_exterior_crepi') and props.use_exterior_crepi:
+                    self._apply_exterior_crepi(obj, props)
             elif part_type == "roof":
                 obj.data.materials.clear()
                 obj.data.materials.append(roof_mat)

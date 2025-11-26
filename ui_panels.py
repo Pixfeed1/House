@@ -286,6 +286,94 @@ class HOUSE_PT_materials_panel(Panel):
         col.prop(props, "roof_color", text="Couleur")
 
 
+class HOUSE_PT_exterior_finish_panel(Panel):
+    """Panneau pour les finitions extérieures (crépi/enduit)"""
+    bl_label = "Finitions extérieures"
+    bl_idname = "HOUSE_PT_exterior_finish_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'House'
+    bl_parent_id = "HOUSE_PT_main_panel"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.house_generator
+
+        layout.use_property_split = False
+
+        layout.prop(props, "use_exterior_crepi", text="Activer crépi/enduit", toggle=True)
+
+        if not props.use_exterior_crepi:
+            return
+
+        layout.separator()
+
+        box = layout.box()
+        box.label(text="Type de crépi", icon='MATERIAL')
+        box.prop(props, "exterior_crepi_type", text="")
+
+        # Info sur le type de crépi
+        crepi_type_info = {
+            'GRATTE': "Traditionnel, texture grattée",
+            'TALOCHE': "Lisse, aspect moderne",
+            'RIBBE': "Stries horizontales",
+            'ECRASE': "Rustique, relief prononcé",
+            'PROJETE': "Rugueux, aspect brut",
+            'LISSE': "Moderne, surface plane",
+        }
+        if props.exterior_crepi_type in crepi_type_info:
+            info_box = box.box()
+            info_box.scale_y = 0.7
+            info_box.label(text=crepi_type_info[props.exterior_crepi_type], icon='INFO')
+
+        layout.separator()
+
+        # ============================================================
+        # COULEUR
+        # ============================================================
+
+        box = layout.box()
+        box.label(text="Couleur", icon='COLOR')
+
+        col = box.column(align=True)
+        col.prop(props, "exterior_crepi_color_preset", text="")
+
+        # Si couleur custom, afficher le color picker
+        if props.exterior_crepi_color_preset == 'CUSTOM':
+            box.separator()
+            col = box.column(align=True)
+            col.label(text="Couleur personnalisée:", icon='BRUSH_DATA')
+            col.prop(props, "exterior_crepi_custom_color", text="")
+
+        layout.separator()
+
+        # ============================================================
+        # RÉGLAGES AVANCÉS
+        # ============================================================
+
+        box = layout.box()
+        box.label(text="Réglages texture", icon='TEXTURE')
+
+        col = box.column(align=True)
+        col.prop(props, "exterior_crepi_grain_size", text="Taille grain", slider=True)
+        col.prop(props, "exterior_crepi_grain_intensity", text="Intensité", slider=True)
+
+        layout.separator()
+
+        box = layout.box()
+        box.label(text="Vieillissement", icon='SHADERFX')
+
+        col = box.column(align=True)
+        col.prop(props, "exterior_crepi_imperfections", text="Imperfections", slider=True)
+        col.prop(props, "exterior_crepi_aging", text="Âge", slider=True)
+
+        # Info sur les imperfections
+        info_box = box.box()
+        info_box.scale_y = 0.7
+        info_box.label(text="Salissures, taches, mousse, fissures", icon='INFO')
+
+
 class HOUSE_PT_elements_panel(Panel):
     """Panneau pour les éléments additionnels"""
     bl_label = "Éléments additionnels"
@@ -752,6 +840,7 @@ classes = (
     HOUSE_PT_walls_panel,
     HOUSE_PT_flooring_panel,
     HOUSE_PT_interior_walls_panel,
+    HOUSE_PT_exterior_finish_panel,
     HOUSE_PT_materials_panel,
     HOUSE_PT_elements_panel,
     HOUSE_PT_rooms_panel,

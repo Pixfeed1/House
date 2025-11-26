@@ -661,7 +661,106 @@ class HouseGeneratorProperties(PropertyGroup):
         default=(0.8, 0.7, 0.5, 1.0),
         update=regenerate_house
     )
-    
+
+    # ============================================================
+    # FINITIONS EXTÉRIEURES - CRÉPI/ENDUIT
+    # ============================================================
+
+    use_exterior_crepi: BoolProperty(
+        name="Utiliser crépi/enduit",
+        description="Appliquer un crépi ou enduit sur les murs extérieurs",
+        default=False,
+        update=regenerate_house
+    )
+
+    exterior_crepi_type: EnumProperty(
+        name="Type de crépi",
+        description="Type de finition crépi/enduit",
+        items=[
+            ('GRATTE', "Gratté", "Enduit gratté traditionnel", 0),
+            ('TALOCHE', "Taloché", "Enduit taloché lisse", 1),
+            ('RIBBE', "Ribbé", "Enduit avec stries horizontales", 2),
+            ('ECRASE', "Écrasé", "Enduit écrasé rustique", 3),
+            ('PROJETE', "Projeté", "Crépi projeté rugueux", 4),
+            ('LISSE', "Lisse", "Enduit lisse moderne", 5),
+        ],
+        default='TALOCHE',
+        update=regenerate_house
+    )
+
+    exterior_crepi_color_preset: EnumProperty(
+        name="Couleur crépi",
+        description="Couleur prédéfinie du crépi",
+        items=[
+            ('BLANC', "Blanc", "Blanc pur", 0),
+            ('BLANC_CASSE', "Blanc cassé", "Blanc légèrement teinté", 1),
+            ('IVOIRE', "Ivoire", "Blanc chaud", 2),
+            ('SABLE', "Sable", "Beige clair", 3),
+            ('BEIGE', "Beige", "Beige moyen", 4),
+            ('OCRE', "Ocre", "Ocre jaune", 5),
+            ('TERRE', "Terre", "Terre de Sienne", 6),
+            ('ROSE', "Rose", "Rose pâle", 7),
+            ('PECHE', "Pêche", "Pêche douce", 8),
+            ('TERRACOTTA', "Terracotta", "Terre cuite", 9),
+            ('GRIS_CLAIR', "Gris clair", "Gris lumineux", 10),
+            ('GRIS', "Gris", "Gris moyen", 11),
+            ('GRIS_ANTHRACITE', "Gris anthracite", "Gris foncé", 12),
+            ('TAUPE', "Taupe", "Gris-brun", 13),
+            ('CUSTOM', "Personnalisée", "Couleur personnalisée", 14),
+        ],
+        default='BLANC_CASSE',
+        update=regenerate_house
+    )
+
+    exterior_crepi_custom_color: FloatVectorProperty(
+        name="Couleur crépi personnalisée",
+        description="Couleur personnalisée du crépi (si preset CUSTOM)",
+        subtype='COLOR',
+        size=4,
+        min=0.0,
+        max=1.0,
+        default=(0.95, 0.92, 0.88, 1.0),
+        update=regenerate_house
+    )
+
+    exterior_crepi_grain_size: FloatProperty(
+        name="Taille grain crépi",
+        description="Taille du grain de texture du crépi",
+        default=1.0,
+        min=0.1,
+        max=3.0,
+        update=regenerate_house
+    )
+
+    exterior_crepi_grain_intensity: FloatProperty(
+        name="Intensité grain",
+        description="Intensité de la texture du crépi",
+        default=1.0,
+        min=0.0,
+        max=2.0,
+        update=regenerate_house
+    )
+
+    exterior_crepi_imperfections: FloatProperty(
+        name="Imperfections crépi",
+        description="Quantité d'imperfections (salissures, taches, mousse, fissures)",
+        default=0.3,
+        min=0.0,
+        max=1.0,
+        subtype='FACTOR',
+        update=regenerate_house
+    )
+
+    exterior_crepi_aging: FloatProperty(
+        name="Vieillissement crépi",
+        description="Niveau de vieillissement du crépi",
+        default=0.2,
+        min=0.0,
+        max=1.0,
+        subtype='FACTOR',
+        update=regenerate_house
+    )
+
     # ============================================================
     # PROPRIÉTÉ AJOUTÉE : CHOIX BRIQUES 3D OU SIMPLE MATÉRIAU
     # ============================================================
