@@ -850,8 +850,16 @@ class HOUSE_OT_generate_auto(Operator):
                 )
 
                 if floor_obj:
-                    # ✅ CORRECTION: Position centrée (l'origine du sol est déjà au centre)
-                    floor_obj.location = (width/2, length/2, z_pos)
+                    # ✅ CORRECTION POSITIONNEMENT:
+                    # Le mesh du parquet va de 0→inset_width, 0→inset_length en coordonnées LOCALES
+                    # Il faut le centrer dans la maison qui va de 0→width, 0→length
+                    # Offset = (maison - sol) / 2 pour centrer
+                    offset_x = (width - inset_width) / 2
+                    offset_y = (length - inset_length) / 2
+                    floor_obj.location = (offset_x, offset_y, z_pos)
+
+                    print(f"[House]   Centrage: maison {width:.2f}×{length:.2f}m, sol {inset_width:.2f}×{inset_length:.2f}m, offset ({offset_x:.3f}, {offset_y:.3f})")
+
                     collection.objects.link(floor_obj)
                     floors.append(floor_obj)
                     print(f"[House]   ✅ Sol créé: {floor_obj.name}, location={floor_obj.location}, collection={collection.name}")
