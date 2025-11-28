@@ -2032,20 +2032,18 @@ class HOUSE_OT_generate_auto(Operator):
         moss = imperf * 0.15
         cracks = imperf * 0.15
 
-        # Offset pour placer le crépi devant le mur
-        offset = 0.005  # 5mm devant le mur
+        # ✅ FIX COMPLET: Mêmes corrections que bardage
+        # Le mesh crépi est aussi créé de (0,0,0), pas centré
 
-        # Définir les 4 façades: (nom, largeur, hauteur, position, rotation_z)
         facades = [
-            ('Front', house_width, house_height, (house_width/2, -offset, house_height/2), 0),
-            ('Back', house_width, house_height, (house_width/2, house_length + offset, house_height/2), math.pi),
-            ('Left', house_length, house_height, (-offset, house_length/2, house_height/2), math.pi/2),
-            ('Right', house_length, house_height, (house_width + offset, house_length/2, house_height/2), -math.pi/2),
+            ('Front', house_width, house_height, (0, 0, 0), (math.pi/2, 0, 0)),
+            ('Back', house_width, house_height, (house_width, house_length, 0), (math.pi/2, 0, math.pi)),
+            ('Left', house_length, house_height, (0, 0, 0), (math.pi/2, 0, math.pi/2)),
+            ('Right', house_length, house_height, (house_width, house_length, 0), (math.pi/2, 0, -math.pi/2)),
         ]
 
         try:
-            for facade_name, facade_width, facade_height, position, rotation_z in facades:
-                # Créer l'instance de crépi pour cette façade
+            for facade_name, facade_width, facade_height, position, rotation in facades:
                 crepi = ExteriorCrepi(
                     plaster_type=props.exterior_crepi_type,
                     color_preset=color_preset,
@@ -2061,7 +2059,6 @@ class HOUSE_OT_generate_auto(Operator):
                     random_seed=42 + hash(facade_name) % 100
                 )
 
-                # Créer le mesh du crépi
                 crepi_obj = crepi.generate_for_wall(
                     wall_obj=None,
                     wall_width=facade_width,
@@ -2071,13 +2068,12 @@ class HOUSE_OT_generate_auto(Operator):
                 )
 
                 if crepi_obj:
-                    # ✅ FIX: Positionner et orienter correctement
-                    crepi_obj.rotation_euler = (math.pi/2, 0, rotation_z)
+                    crepi_obj.rotation_euler = rotation
                     crepi_obj.location = position
                     crepi_obj.name = f"Crepi_{facade_name}"
                     crepi_obj["house_part"] = "crepi"
                     collection.objects.link(crepi_obj)
-                    print(f"[House] ✅ Crépi {facade_name} créé")
+                    print(f"[House] ✅ Crépi {facade_name} créé à pos={position}")
 
             print(f"[House] ✅ Crépi {props.exterior_crepi_type} appliqué sur 4 façades")
 
@@ -2103,19 +2099,25 @@ class HOUSE_OT_generate_auto(Operator):
         if props.bardage_material_type == 'PEINT' and props.bardage_paint_preset == 'CUSTOM':
             custom_color = tuple(props.bardage_paint_custom_color)
 
-        # Offset pour placer le bardage devant le mur
-        offset = 0.01  # 1cm devant le mur
+        # ✅ FIX COMPLET: Le mesh est créé de (0,0,0) à (width, height, thickness)
+        # Après rotation X=90°, il va de (0, -thickness, 0) à (width, 0, height)
+        # Les positions doivent tenir compte de cela (PAS de positions centrées!)
+        thickness = 0.020
 
-        # Définir les 4 façades: (nom, largeur, hauteur, position, rotation_z)
+        # Définir les 4 façades: (nom, wall_width, wall_height, position, rotation_euler)
         facades = [
-            ('Front', house_width, house_height, (house_width/2, -offset, house_height/2), 0),
-            ('Back', house_width, house_height, (house_width/2, house_length + offset, house_height/2), math.pi),
-            ('Left', house_length, house_height, (-offset, house_length/2, house_height/2), math.pi/2),
-            ('Right', house_length, house_height, (house_width + offset, house_length/2, house_height/2), -math.pi/2),
+            # Front (Y=0, face vers -Y): mesh couvre X=0→width, Z=0→height
+            ('Front', house_width, house_height, (0, 0, 0), (math.pi/2, 0, 0)),
+            # Back (Y=length, face vers +Y): après rot Z=π, mesh va de (width,length) vers (0,length)
+            ('Back', house_width, house_height, (house_width, house_length, 0), (math.pi/2, 0, math.pi)),
+            # Left (X=0, face vers -X): après rot Z=π/2, mesh couvre Y=0→length, Z=0→height
+            ('Left', house_length, house_height, (0, 0, 0), (math.pi/2, 0, math.pi/2)),
+            # Right (X=width, face vers +X): après rot Z=-π/2, mesh part de (width, length)
+            ('Right', house_length, house_height, (house_width, house_length, 0), (math.pi/2, 0, -math.pi/2)),
         ]
 
         try:
-            for facade_name, facade_width, facade_height, position, rotation_z in facades:
+            for facade_name, facade_width, facade_height, position, rotation in facades:
                 # Créer l'instance de bardage pour cette façade
                 bardage = ExteriorBardage(
                     wall_width=facade_width,
@@ -2123,7 +2125,7 @@ class HOUSE_OT_generate_auto(Operator):
                     pose_type=props.bardage_pose_type,
                     material_type=props.bardage_material_type,
                     plank_width=props.bardage_plank_width,
-                    plank_thickness=0.020,
+                    plank_thickness=thickness,
                     gap=props.bardage_gap,
                     bevel_width=0.001,
                     wood_species=props.bardage_wood_species,
@@ -2134,20 +2136,18 @@ class HOUSE_OT_generate_auto(Operator):
                     burn_intensity=props.bardage_burn_intensity,
                     plank_variation=props.bardage_variation,
                     height_variation=0.001,
-                    random_seed=42 + hash(facade_name) % 100  # Variation par façade
+                    random_seed=42 + hash(facade_name) % 100
                 )
 
                 # Créer le mesh du bardage
                 bardage_obj = bardage.generate_for_wall(None, collection)
 
                 if bardage_obj:
-                    # ✅ FIX: Positionner et orienter correctement
-                    # Le mesh est créé dans le plan XY, il faut le tourner pour le mettre vertical
-                    bardage_obj.rotation_euler = (math.pi/2, 0, rotation_z)  # Rotation X=90° pour verticaliser
+                    bardage_obj.rotation_euler = rotation
                     bardage_obj.location = position
                     bardage_obj.name = f"Bardage_{facade_name}"
                     bardage_obj["house_part"] = "bardage"
-                    print(f"[House] ✅ Bardage {facade_name} créé")
+                    print(f"[House] ✅ Bardage {facade_name} créé à pos={position}, rot={rotation}")
 
             print(f"[House] ✅ Bardage {props.bardage_material_type} ({props.bardage_pose_type}) appliqué sur 4 façades")
 
@@ -2173,19 +2173,20 @@ class HOUSE_OT_generate_auto(Operator):
         if props.pierre_stone_type == 'CUSTOM':
             custom_color = tuple(props.pierre_custom_color)
 
-        # Offset pour placer la pierre devant le mur
-        offset = 0.01  # 1cm devant le mur
+        # ✅ FIX COMPLET: Mêmes corrections que bardage/crepi
+        # Le mesh pierre est créé de (0,0,0) à (width, height, thickness)
+        # Après rotation X=90°, il couvre correctement le mur
 
-        # Définir les 4 façades: (nom, largeur, hauteur, position, rotation_z)
+        # Définir les 4 façades: (nom, largeur, hauteur, position, rotation_euler)
         facades = [
-            ('Front', house_width, house_height, (house_width/2, -offset, house_height/2), 0),
-            ('Back', house_width, house_height, (house_width/2, house_length + offset, house_height/2), math.pi),
-            ('Left', house_length, house_height, (-offset, house_length/2, house_height/2), math.pi/2),
-            ('Right', house_length, house_height, (house_width + offset, house_length/2, house_height/2), -math.pi/2),
+            ('Front', house_width, house_height, (0, 0, 0), (math.pi/2, 0, 0)),
+            ('Back', house_width, house_height, (house_width, house_length, 0), (math.pi/2, 0, math.pi)),
+            ('Left', house_length, house_height, (0, 0, 0), (math.pi/2, 0, math.pi/2)),
+            ('Right', house_length, house_height, (house_width, house_length, 0), (math.pi/2, 0, -math.pi/2)),
         ]
 
         try:
-            for facade_name, facade_width, facade_height, position, rotation_z in facades:
+            for facade_name, facade_width, facade_height, position, rotation in facades:
                 # Créer l'instance de pierre de parement pour cette façade
                 pierre = ExteriorPierreParement(
                     wall_width=facade_width,
@@ -2215,11 +2216,11 @@ class HOUSE_OT_generate_auto(Operator):
 
                 if pierre_obj:
                     # ✅ FIX: Positionner et orienter correctement
-                    pierre_obj.rotation_euler = (math.pi/2, 0, rotation_z)
+                    pierre_obj.rotation_euler = rotation
                     pierre_obj.location = position
                     pierre_obj.name = f"Pierre_{facade_name}"
                     pierre_obj["house_part"] = "pierre_parement"
-                    print(f"[House] ✅ Pierre {facade_name} créé")
+                    print(f"[House] ✅ Pierre {facade_name} créé à pos={position}, rot={rotation}")
 
             print(f"[House] ✅ Pierre de parement {props.pierre_stone_type} ({props.pierre_layout_type}) appliquée sur 4 façades")
 
