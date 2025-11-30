@@ -77,7 +77,7 @@ class WindowGenerator:
         
         print(f"[Windows] Qualité: {quality} - Segments arc: {self.arc_segments}, Frame: {self.frame_width*1000}mm")
     
-    def generate_window(self, window_type, width, height, location, orientation, collection):
+    def generate_window(self, window_type, width, height, location, orientation, collection, opening_angle=0.0):
         """Point d'entrée principal pour générer une fenêtre complète
 
         Args:
@@ -87,6 +87,7 @@ class WindowGenerator:
             location (Vector): Position dans l'espace
             orientation (str): Orientation du mur (front, back, left, right)
             collection: Collection Blender où ajouter les objets
+            opening_angle (float): Angle d'ouverture en radians (0 = fermée)
 
         Returns:
             list: Liste des objets créés (cadre + verre)
@@ -121,7 +122,10 @@ class WindowGenerator:
         try:
             # Créer la fenêtre selon le type
             if window_type == 'CASEMENT':
-                window_obj = self._create_casement_window(width, height, location, orientation)
+                # Fenêtre battante avec support d'ouverture
+                return self._create_casement_window_animated(
+                    width, height, location, orientation, collection, opening_angle
+                )
             elif window_type == 'SLIDING':
                 window_obj = self._create_sliding_window(width, height, location, orientation)
             elif window_type == 'FIXED':
@@ -207,10 +211,145 @@ class WindowGenerator:
             # Créer l'objet
             obj = self._bmesh_to_object(bm, "WindowCasement")
             return obj
-            
+
         finally:
             bm.free()
-    
+
+    def _create_casement_window_animated(self, width, height, location, orientation, collection, opening_angle=0.0):
+        """Fenêtre à battant avec support d'animation d'ouverture
+
+        Args:
+            width: Largeur de la fenêtre
+            height: Hauteur de la fenêtre
+            location: Position dans l'espace
+            orientation: Orientation du mur (front, back, left, right)
+            collection: Collection Blender
+            opening_angle: Angle d'ouverture en radians
+
+        Returns:
+            Liste des objets créés
+        """
+        objects = []
+        frame_w = self.frame_width
+        sash_w = self.sash_width
+
+        # === 1. CADRE EXTÉRIEUR (Dormant) - FIXE ===
+        bm_frame = bmesh.new()
+        try:
+            self._add_rectangular_frame(bm_frame, width, height, frame_w, FRAME_DEPTH, offset_y=0)
+            self._add_window_sill(bm_frame, width, height, FRAME_DEPTH)
+
+            if self.quality in ['MEDIUM', 'HIGH']:
+                self._apply_bevels(bm_frame)
+
+            rotation_matrix = self._get_orientation_matrix(orientation)
+            bmesh.ops.transform(bm_frame, matrix=rotation_matrix, verts=bm_frame.verts)
+            bmesh.ops.translate(bm_frame, verts=bm_frame.verts, vec=location)
+
+            frame_obj = self._bmesh_to_object(bm_frame, "Window_Frame")
+            collection.objects.link(frame_obj)
+            frame_obj["house_part"] = "window_frame"
+            self._apply_frame_material(frame_obj)
+            objects.append(frame_obj)
+        finally:
+            bm_frame.free()
+
+        # === 2. OUVRANT (Sash) - MOBILE ===
+        sash_width = width - frame_w * 2 - 0.003
+        sash_height = height - frame_w * 2 - 0.003
+
+        bm_sash = bmesh.new()
+        try:
+            self._add_rectangular_frame(bm_sash, sash_width, sash_height, sash_w, FRAME_DEPTH - 0.015, offset_y=0.01)
+
+            if self.quality in ['MEDIUM', 'HIGH']:
+                self._apply_bevels(bm_sash)
+
+            sash_obj = self._bmesh_to_object(bm_sash, "Window_Sash")
+            collection.objects.link(sash_obj)
+            sash_obj["house_part"] = "window_sash"
+            self._apply_frame_material(sash_obj)
+            objects.append(sash_obj)
+        finally:
+            bm_sash.free()
+
+        # === 3. VITRAGE - MOBILE (suit l'ouvrant) ===
+        glass_width = sash_width - sash_w * 2
+        glass_height = sash_height - sash_w * 2
+
+        bm_glass = bmesh.new()
+        try:
+            half_w = glass_width / 2
+            half_h = glass_height / 2
+            glass_y = 0.01  # Position Y du verre
+
+            verts = [
+                bm_glass.verts.new((-half_w, glass_y, -half_h)),
+                bm_glass.verts.new((half_w, glass_y, -half_h)),
+                bm_glass.verts.new((half_w, glass_y, half_h)),
+                bm_glass.verts.new((-half_w, glass_y, half_h)),
+            ]
+            bm_glass.faces.new(verts)
+
+            glass_obj = self._bmesh_to_object(bm_glass, "Window_Glass")
+            collection.objects.link(glass_obj)
+            glass_obj["house_part"] = "window_glass"
+            self._apply_glass_material(glass_obj)
+            objects.append(glass_obj)
+        finally:
+            bm_glass.free()
+
+        # === 4. ANIMATION : Rotation si angle > 0 ===
+        if opening_angle > 0.001:  # Seuil minimal
+            # Point pivot sur le côté gauche de l'ouvrant
+            pivot_x = -sash_width / 2
+            pivot_y = 0.01
+            pivot_z = 0
+
+            # Créer un Empty comme pivot
+            pivot_empty = bpy.data.objects.new("Window_Pivot", None)
+            pivot_empty.empty_display_type = 'ARROWS'
+            pivot_empty.empty_display_size = 0.05
+            collection.objects.link(pivot_empty)
+            pivot_empty["house_part"] = "window_pivot"
+            objects.append(pivot_empty)
+
+            # Parenter sash et glass au pivot
+            for part in [sash_obj, glass_obj]:
+                part.location.x -= pivot_x
+                part.parent = pivot_empty
+                part.matrix_parent_inverse = pivot_empty.matrix_world.inverted()
+
+            # Rotation du pivot (ouverture vers l'intérieur)
+            # Selon l'orientation, l'axe de rotation change
+            if orientation == 'front':
+                pivot_empty.rotation_euler.z = opening_angle
+                pivot_empty.location = Vector((location.x - width/2 + frame_w + pivot_x, location.y + 0.01, location.z))
+            elif orientation == 'back':
+                pivot_empty.rotation_euler.z = -opening_angle
+                pivot_empty.location = Vector((location.x - width/2 + frame_w + pivot_x, location.y - 0.01, location.z))
+            elif orientation == 'left':
+                pivot_empty.rotation_euler.z = math.pi/2 + opening_angle
+                pivot_empty.location = Vector((location.x + 0.01, location.y - width/2 + frame_w + pivot_x, location.z))
+            elif orientation == 'right':
+                pivot_empty.rotation_euler.z = -math.pi/2 - opening_angle
+                pivot_empty.location = Vector((location.x - 0.01, location.y - width/2 + frame_w + pivot_x, location.z))
+        else:
+            # Pas d'ouverture - positionner normalement
+            rotation_matrix = self._get_orientation_matrix(orientation)
+
+            for part in [sash_obj, glass_obj]:
+                # Appliquer rotation et translation
+                bm_temp = bmesh.new()
+                bm_temp.from_mesh(part.data)
+                bmesh.ops.transform(bm_temp, matrix=rotation_matrix, verts=bm_temp.verts)
+                bmesh.ops.translate(bm_temp, verts=bm_temp.verts, vec=location)
+                bm_temp.to_mesh(part.data)
+                bm_temp.free()
+                part.data.update()
+
+        return objects
+
     # ============================================================
     # SLIDING WINDOW (Fenêtre coulissante)
     # ============================================================

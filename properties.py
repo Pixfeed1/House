@@ -249,7 +249,17 @@ class HouseGeneratorProperties(PropertyGroup):
         default='MEDIUM',
         update=regenerate_house
     )
-    
+
+    window_opening_angle: FloatProperty(
+        name="Ouverture fenêtres",
+        description="Angle d'ouverture des fenêtres (0° = fermées, 90° = ouvertes)",
+        default=0.0,
+        min=0.0,
+        max=90.0,
+        subtype='ANGLE',
+        update=regenerate_house
+    )
+
     num_windows_front: IntProperty(
         name="Fenêtres façade",
         description="Nombre de fenêtres sur la façade avant",
@@ -387,6 +397,16 @@ class HouseGeneratorProperties(PropertyGroup):
             ('HIGH', "Haute", "Maximum de détails", 2),
         ],
         default='MEDIUM',
+        update=regenerate_house
+    )
+
+    door_opening_angle: FloatProperty(
+        name="Ouverture porte",
+        description="Angle d'ouverture de la porte (0° = fermée, 90° = ouverte)",
+        default=0.0,
+        min=0.0,
+        max=90.0,
+        subtype='ANGLE',
         update=regenerate_house
     )
 

@@ -38,6 +38,7 @@ class DoorGenerator:
                  hinge_side='LEFT',
                  add_hinges=True,
                  hinge_count=3,
+                 opening_angle=0.0,
                  random_seed=42):
         """
         Initialise le générateur de porte.
@@ -59,6 +60,7 @@ class DoorGenerator:
             hinge_side: Côté des charnières (LEFT, RIGHT)
             add_hinges: Ajouter des charnières
             hinge_count: Nombre de charnières
+            opening_angle: Angle d'ouverture en degrés (0=fermée, 90=ouverte)
             random_seed: Seed aléatoire
         """
         self.door_style = door_style
@@ -77,13 +79,14 @@ class DoorGenerator:
         self.hinge_side = hinge_side
         self.add_hinges = add_hinges
         self.hinge_count = hinge_count
+        self.opening_angle = max(0.0, min(90.0, opening_angle))
         self.random_seed = random_seed
 
         random.seed(random_seed)
 
     def generate(self, collection, location=(0, 0, 0), rotation=0):
         """
-        Génère la porte complète.
+        Génère la porte complète avec animation d'ouverture.
 
         Args:
             collection: Collection Blender où créer les objets
@@ -94,6 +97,7 @@ class DoorGenerator:
             Liste des objets créés
         """
         objects = []
+        moving_parts = []  # Parties qui bougent avec la porte
 
         # Créer la porte selon le style
         if self.door_style == 'SOLID_WOOD':
@@ -109,8 +113,9 @@ class DoorGenerator:
 
         if door_obj:
             objects.append(door_obj)
+            moving_parts.append(door_obj)
 
-        # Ajouter le cadre
+        # Ajouter le cadre (partie FIXE - ne bouge pas)
         if self.add_frame:
             frame_parts = self.create_frame(collection)
             objects.extend(frame_parts)
@@ -119,22 +124,83 @@ class DoorGenerator:
         if self.add_hinges:
             hinge_parts = self.create_hinges(collection)
             objects.extend(hinge_parts)
+            # Les parties mobiles des charnières bougent avec la porte
+            for hp in hinge_parts:
+                if hp and 'Mobile' in hp.name:
+                    moving_parts.append(hp)
 
-        # Ajouter la poignée
+        # Ajouter la poignée (bouge avec la porte)
         if self.add_handle:
             handle_parts = self.create_handle(collection)
             objects.extend(handle_parts)
+            moving_parts.extend(handle_parts)
 
-        # Appliquer position et rotation
-        for obj in objects:
-            if obj and obj.type == 'MESH':
-                # Déplacer
-                obj.location.x += location[0]
-                obj.location.y += location[1]
-                obj.location.z += location[2]
-                # Rotation
-                if rotation != 0:
-                    obj.rotation_euler.z += rotation
+        # Ajouter les panneaux décoratifs (bougent avec la porte)
+        for obj in collection.objects:
+            if obj and 'Panel' in obj.name and obj not in moving_parts:
+                moving_parts.append(obj)
+
+        # ============================================================
+        # ANIMATION : Rotation autour du pivot (charnières)
+        # ============================================================
+        if self.opening_angle > 0:
+            # Déterminer le point pivot (côté charnières)
+            if self.hinge_side == 'LEFT':
+                pivot_x = 0.0
+                angle_sign = 1  # Ouvre vers l'intérieur (sens anti-horaire vu de dessus)
+            else:
+                pivot_x = self.door_width
+                angle_sign = -1  # Ouvre vers l'intérieur (sens horaire vu de dessus)
+
+            pivot_y = 0.0
+            angle_rad = math.radians(self.opening_angle) * angle_sign
+
+            # Créer un Empty comme pivot
+            pivot_empty = bpy.data.objects.new("Door_Pivot", None)
+            pivot_empty.empty_display_type = 'ARROWS'
+            pivot_empty.empty_display_size = 0.1
+            pivot_empty.location = (pivot_x, pivot_y, 0)
+            collection.objects.link(pivot_empty)
+            pivot_empty["house_part"] = "door_pivot"
+            objects.append(pivot_empty)
+
+            # Parenter les parties mobiles au pivot
+            for part in moving_parts:
+                if part and part.type == 'MESH':
+                    # Décaler la position relative au pivot
+                    part.location.x -= pivot_x
+                    part.location.y -= pivot_y
+                    part.parent = pivot_empty
+                    part.matrix_parent_inverse = pivot_empty.matrix_world.inverted()
+
+            # Appliquer la rotation au pivot
+            pivot_empty.rotation_euler.z = angle_rad
+
+            # Appliquer position et rotation globale au pivot
+            pivot_empty.location.x += location[0] + pivot_x
+            pivot_empty.location.y += location[1]
+            pivot_empty.location.z += location[2]
+            if rotation != 0:
+                pivot_empty.rotation_euler.z += rotation
+
+            # Appliquer position et rotation aux parties fixes (cadre, charnières fixes)
+            for obj in objects:
+                if obj and obj.type == 'MESH' and obj not in moving_parts:
+                    obj.location.x += location[0]
+                    obj.location.y += location[1]
+                    obj.location.z += location[2]
+                    if rotation != 0:
+                        obj.rotation_euler.z += rotation
+
+        else:
+            # Pas d'ouverture - appliquer position et rotation normalement
+            for obj in objects:
+                if obj and obj.type == 'MESH':
+                    obj.location.x += location[0]
+                    obj.location.y += location[1]
+                    obj.location.z += location[2]
+                    if rotation != 0:
+                        obj.rotation_euler.z += rotation
 
         return objects
 
@@ -1008,6 +1074,13 @@ def generate_door_for_house(collection, props, location, rotation=0):
     alu_color = getattr(props, 'door_alu_color', 'GRIS_ANTHRACITE')
     alu_finish = getattr(props, 'door_alu_finish', 'SATINE')
     glass_type = getattr(props, 'door_glass_type', 'CLEAR')
+    opening_angle = getattr(props, 'door_opening_angle', 0.0)
+
+    # Convertir radians en degrés si nécessaire (Blender stocke en radians avec subtype='ANGLE')
+    if opening_angle > 2.0:  # Probablement déjà en degrés
+        opening_degrees = opening_angle
+    else:
+        opening_degrees = math.degrees(opening_angle)
 
     generator = DoorGenerator(
         door_style=door_style,
@@ -1019,7 +1092,8 @@ def generate_door_for_house(collection, props, location, rotation=0):
         glass_type=glass_type,
         add_frame=True,
         add_handle=True,
-        add_hinges=True
+        add_hinges=True,
+        opening_angle=opening_degrees
     )
 
     return generator.generate(collection, location, rotation)

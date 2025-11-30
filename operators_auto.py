@@ -1752,7 +1752,8 @@ class HOUSE_OT_generate_auto(Operator):
                     height=window_height,
                     location=Vector((x_pos, WINDOW_DEPTH_OFFSET, window_z)),
                     orientation='front',
-                    collection=collection
+                    collection=collection,
+                    opening_angle=getattr(props, 'window_opening_angle', 0.0)
                 )
 
             # ✅ Mur ARRIÈRE - Fenêtres à y = length + 0.005m (devant briques qui sont à y=length)
@@ -1764,7 +1765,8 @@ class HOUSE_OT_generate_auto(Operator):
                     height=window_height,
                     location=Vector((x_pos, length - WINDOW_DEPTH_OFFSET, window_z)),
                     orientation='back',
-                    collection=collection
+                    collection=collection,
+                    opening_angle=getattr(props, 'window_opening_angle', 0.0)
                 )
 
             # ✅ Mur GAUCHE - Fenêtres à x = -0.005m (devant briques qui sont à x=0)
@@ -1777,7 +1779,8 @@ class HOUSE_OT_generate_auto(Operator):
                     height=window_height,
                     location=Vector((WINDOW_DEPTH_OFFSET, y_pos, window_z)),
                     orientation='left',
-                    collection=collection
+                    collection=collection,
+                    opening_angle=getattr(props, 'window_opening_angle', 0.0)
                 )
 
             # ✅ Mur DROIT - Fenêtres à x = width + 0.005m (devant briques qui sont à x=width)
@@ -1789,7 +1792,8 @@ class HOUSE_OT_generate_auto(Operator):
                     height=window_height,
                     location=Vector((width - WINDOW_DEPTH_OFFSET, y_pos, window_z)),
                     orientation='right',
-                    collection=collection
+                    collection=collection,
+                    opening_angle=getattr(props, 'window_opening_angle', 0.0)
                 )
     
     # [... Les autres fonctions garage, terrace, balcony, lighting restent identiques ...]
