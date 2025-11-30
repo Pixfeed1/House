@@ -2008,7 +2008,11 @@ class HOUSE_OT_generate_auto(Operator):
             light_object.location = (width / 2, length / 2 - 5, total_height + 5)
 
     def _apply_exterior_crepi(self, wall_obj, props, collection):
-        """Applique un crépi/enduit extérieur sur un mur"""
+        """Applique un crépi/enduit extérieur sur un mur
+
+        ⚠️ LIMITATION ACTUELLE: Le crépi couvre TOUT le mur (incluant fenêtres/portes)
+        TODO: Implémenter Boolean pour découper les ouvertures
+        """
         from .exterior_walls import ExteriorCrepi
 
         print(f"[House] Application crépi/enduit sur {wall_obj.name}")
@@ -2060,7 +2064,12 @@ class HOUSE_OT_generate_auto(Operator):
                 crepi_obj.location.z += 0.001
                 crepi_obj["house_part"] = "crepi"
 
-            print(f"[House] ✅ Crépi {props.exterior_crepi_type} créé avec mesh relief 3D")
+                # ✅ CORRECTION: Ajouter le crépi à la collection
+                collection.objects.link(crepi_obj)
+
+                print(f"[House] ✅ Crépi {props.exterior_crepi_type} créé avec mesh relief 3D")
+            else:
+                print(f"[House] ❌ ERREUR: crepi_obj est None!")
 
         except Exception as e:
             print(f"[House] ⚠️ Erreur application crépi sur {wall_obj.name}: {e}")
@@ -2068,7 +2077,11 @@ class HOUSE_OT_generate_auto(Operator):
             traceback.print_exc()
 
     def _apply_exterior_bardage(self, wall_obj, props, collection):
-        """Applique un bardage bois extérieur sur un mur"""
+        """Applique un bardage bois extérieur sur un mur
+
+        ⚠️ LIMITATION ACTUELLE: Le bardage couvre TOUT le mur (incluant fenêtres/portes)
+        TODO: Implémenter Boolean pour découper les ouvertures
+        """
         from .exterior_walls import ExteriorBardage
 
         print(f"[House] Application bardage bois sur {wall_obj.name}")
@@ -2119,7 +2132,11 @@ class HOUSE_OT_generate_auto(Operator):
             traceback.print_exc()
 
     def _apply_exterior_pierre(self, wall_obj, props, collection):
-        """Applique un parement pierre extérieur sur un mur"""
+        """Applique un parement pierre extérieur sur un mur
+
+        ⚠️ LIMITATION ACTUELLE: Le parement couvre TOUT le mur (incluant fenêtres/portes)
+        TODO: Implémenter Boolean pour découper les ouvertures
+        """
         from .exterior_walls import ExteriorPierreParement
 
         print(f"[House] Application pierre de parement sur {wall_obj.name}")
@@ -2204,7 +2221,7 @@ class HOUSE_OT_generate_auto(Operator):
 
                 # ✅ CRÉPI/ENDUIT EXTÉRIEUR - S'applique aux murs simples ET briques 3D
                 if hasattr(props, 'use_exterior_crepi') and props.use_exterior_crepi:
-                    self._apply_exterior_crepi(obj, props)
+                    self._apply_exterior_crepi(obj, props, collection)
 
                 # ✅ BARDAGE BOIS EXTÉRIEUR - S'applique aux murs simples ET briques 3D
                 # Note: Si crépi ET bardage sont activés, le bardage remplacera le crépi
