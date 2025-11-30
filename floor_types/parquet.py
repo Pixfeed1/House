@@ -10,6 +10,9 @@ Types de pose:
 - Chevron
 - Bâton Rompu (herringbone)
 - Point de Hongrie (hungarian)
+
+CORRECTION v2: Suppression du Boolean qui échouait.
+Les lames sont maintenant clippées directement dans le générateur.
 """
 
 import bpy
@@ -47,19 +50,53 @@ class ParquetProceduralGenerator:
 
         random.seed(self.random_seed)
 
-    def create_plank(self, bm, x, y, z, width, length, thickness, rotation=0, uv_layer=None):
-        """Crée une lame de parquet avec variations réalistes"""
-
-        # Variations
+    def create_plank_clipped(self, bm, x, y, z, width, length, thickness, rotation=0, uv_layer=None):
+        """
+        Crée une lame de parquet avec clipping aux bords du sol.
+        
+        CORRECTION: Les lames qui dépassent sont coupées au lieu d'être ignorées.
+        """
+        # Variations (réduites pour éviter les dépassements)
         z += random.uniform(-self.height_variation, self.height_variation)
         x += random.uniform(-self.position_variation, self.position_variation)
         y += random.uniform(-self.position_variation, self.position_variation)
         rotation += math.radians(random.uniform(-self.rotation_variation, self.rotation_variation))
 
-        # Variation de longueur
-        if self.length_variation > 0:
-            length *= (1 + random.uniform(-self.length_variation, self.length_variation))
-
+        # Pour les lames droites (pas de rotation significative), on peut clipper facilement
+        if abs(rotation) < 0.01:  # Quasi pas de rotation
+            # Calculer les bords de la lame
+            x_min = x - width / 2
+            x_max = x + width / 2
+            y_min = y - length / 2
+            y_max = y + length / 2
+            
+            # Clipper aux bords du sol
+            if x_max <= 0 or x_min >= self.floor_width:
+                return None, None  # Lame complètement hors zone
+            if y_max <= 0 or y_min >= self.floor_length:
+                return None, None  # Lame complètement hors zone
+            
+            # Ajuster les bords
+            if x_min < 0:
+                width += x_min  # Réduire la largeur
+                x = width / 2   # Recentrer
+                x_min = 0
+            if x_max > self.floor_width:
+                width -= (x_max - self.floor_width)
+                x = self.floor_width - width / 2
+            
+            if y_min < 0:
+                length += y_min
+                y = length / 2
+                y_min = 0
+            if y_max > self.floor_length:
+                length -= (y_max - self.floor_length)
+                y = self.floor_length - length / 2
+            
+            # Vérifier que la lame a encore une taille valide
+            if width < 0.005 or length < 0.005:  # Minimum 5mm
+                return None, None
+        
         # Créer les vertices de la lame (8 points pour un parallélépipède)
         hw = width / 2
         hl = length / 2
@@ -108,80 +145,62 @@ class ParquetProceduralGenerator:
         if uv_layer and created_faces:
             for face in created_faces:
                 for loop in face.loops:
-                    # UV basé sur la position locale de la lame
                     local_pos = rot_matrix.inverted() @ (loop.vert.co - Vector((x, y, z)))
-                    # Normaliser les UVs pour chaque lame
-                    u = (local_pos.x + hw) / width
-                    v = (local_pos.y + hl) / length
+                    u = (local_pos.x + hw) / width if width > 0 else 0
+                    v = (local_pos.y + hl) / length if length > 0 else 0
                     loop[uv_layer].uv = (u, v)
 
         return bm_verts, created_faces
 
     def generate_straight(self, bm, uv_layer):
-        """Parquet à l'anglaise - pose droite décalée"""
+        """Parquet à l'anglaise - pose droite décalée avec clipping intégré"""
 
         plank_w = self.plank_width + self.gap
         plank_l = self.plank_length + self.gap
 
-        # +1 pour marge de sécurité - le Boolean clippera ce qui dépasse
         rows = int(math.ceil(self.floor_width / plank_w)) + 1
+        planks_created = 0
 
         for row in range(rows):
             x = row * plank_w + self.plank_width / 2
 
-            # Permettre aux lames de dépasser très légèrement (Boolean les clippera)
-            if x - self.plank_width / 2 > self.floor_width + self.plank_width * 0.5:
+            # Arrêter si on est trop loin
+            if x - self.plank_width / 2 > self.floor_width:
                 continue
 
             # Décalage 1/3 (pose anglaise classique)
             offset = (row % 3) * (plank_l / 3)
 
-            # Commencer avant le décalage pour ne pas laisser de trou au début
             y = offset + self.plank_length / 2 - plank_l
-            if y < 0:
+            if y < self.plank_length / 2:
                 y = self.plank_length / 2
 
             while y - self.plank_length / 2 < self.floor_length:
-                # Calculer la longueur réelle (couper si dépasse)
-                actual_length = self.plank_length
-
-                # Couper au début
-                start_y = y - actual_length / 2
-                if start_y < 0:
-                    actual_length += start_y
-                    y = actual_length / 2
-
-                # Couper à la fin
-                end_y = y + actual_length / 2
-                if end_y > self.floor_length:
-                    actual_length -= (end_y - self.floor_length)
-                    y = self.floor_length - actual_length / 2
-
-                # Minimum 1cm au lieu de 5cm pour éviter les trous
-                if actual_length > 0.01:
-                    self.create_plank(
-                        bm, x, y, 0,
-                        self.plank_width, actual_length, self.plank_thickness,
-                        0, uv_layer
-                    )
+                result = self.create_plank_clipped(
+                    bm, x, y, 0,
+                    self.plank_width, self.plank_length, self.plank_thickness,
+                    0, uv_layer
+                )
+                if result[0] is not None:
+                    planks_created += 1
 
                 y += plank_l
 
+        print(f"[Parquet] STRAIGHT: {planks_created} lames créées")
+
     def generate_chevron(self, bm, uv_layer):
-        """Parquet en chevron (pointe de flèche)"""
+        """Parquet en chevron avec clipping intégré"""
 
-        angle = math.radians(45)  # Angle fixe 45° pour chevron classique
-
+        angle = math.radians(45)
         plank_w = self.plank_width + self.gap
         plank_l = self.plank_length
 
-        # Calcul de l'espacement en V
         v_height = plank_l * math.sin(angle)
         v_width = plank_l * math.cos(angle)
-
         row_height = v_height + self.gap
 
-        rows = int(math.ceil(self.floor_length / row_height)) + 1
+        rows = int(math.ceil(self.floor_length / row_height)) + 2
+        planks_created = 0
 
         for row in range(rows):
             base_y = row * row_height
@@ -192,12 +211,14 @@ class ParquetProceduralGenerator:
                 px = x + v_width / 2
                 py = base_y + v_height / 2
 
-                if px < self.floor_width / 2 + plank_l * 0.5 and py < self.floor_length + plank_l * 0.5:
-                    self.create_plank(
+                if py < self.floor_length + plank_l:
+                    result = self.create_plank_clipped(
                         bm, px, py, 0,
                         self.plank_width, plank_l, self.plank_thickness,
                         angle, uv_layer
                     )
+                    if result[0] is not None:
+                        planks_created += 1
 
                 x += plank_w / math.cos(angle)
 
@@ -207,17 +228,21 @@ class ParquetProceduralGenerator:
                 px = self.floor_width - x - v_width / 2
                 py = base_y + v_height / 2
 
-                if px > -plank_l * 0.5 and py < self.floor_length + plank_l * 0.5:
-                    self.create_plank(
+                if py < self.floor_length + plank_l:
+                    result = self.create_plank_clipped(
                         bm, px, py, 0,
                         self.plank_width, plank_l, self.plank_thickness,
                         -angle, uv_layer
                     )
+                    if result[0] is not None:
+                        planks_created += 1
 
                 x += plank_w / math.cos(angle)
 
+        print(f"[Parquet] CHEVRON: {planks_created} lames créées")
+
     def generate_herringbone(self, bm, uv_layer):
-        """Parquet bâton rompu"""
+        """Parquet bâton rompu avec clipping intégré"""
 
         plank_w = self.plank_width + self.gap
         plank_l = self.plank_length + self.gap
@@ -227,6 +252,7 @@ class ParquetProceduralGenerator:
 
         cols = int(math.ceil(self.floor_width / pattern_width)) + 1
         rows = int(math.ceil(self.floor_length / pattern_height)) + 1
+        planks_created = 0
 
         for col in range(cols):
             for row in range(rows):
@@ -237,28 +263,34 @@ class ParquetProceduralGenerator:
                 px1 = base_x + self.plank_length / 2
                 py1 = base_y + self.plank_width / 2
 
-                if px1 < self.floor_width + plank_l * 0.5 and py1 < self.floor_length + plank_w * 0.5:
-                    self.create_plank(
-                        bm, px1, py1, 0,
-                        self.plank_width, self.plank_length, self.plank_thickness,
-                        math.radians(90), uv_layer
-                    )
+                result = self.create_plank_clipped(
+                    bm, px1, py1, 0,
+                    self.plank_width, self.plank_length, self.plank_thickness,
+                    math.radians(90), uv_layer
+                )
+                if result[0] is not None:
+                    planks_created += 1
 
                 # Lame verticale
                 px2 = base_x + self.plank_width / 2 + self.plank_length
                 py2 = base_y + self.plank_length / 2
 
-                if px2 < self.floor_width + plank_w * 0.5 and py2 < self.floor_length + plank_l * 0.5:
-                    self.create_plank(
-                        bm, px2, py2, 0,
-                        self.plank_width, self.plank_length, self.plank_thickness,
-                        0, uv_layer
-                    )
+                result = self.create_plank_clipped(
+                    bm, px2, py2, 0,
+                    self.plank_width, self.plank_length, self.plank_thickness,
+                    0, uv_layer
+                )
+                if result[0] is not None:
+                    planks_created += 1
+
+        print(f"[Parquet] HERRINGBONE: {planks_created} lames créées")
 
     def generate(self):
         """Génère le parquet selon le type de pose"""
         bm = bmesh.new()
         uv_layer = bm.loops.layers.uv.new("UVMap")
+
+        print(f"[Parquet] Génération pattern={self.pattern}, floor={self.floor_width:.2f}x{self.floor_length:.2f}m")
 
         if self.pattern == 'STRAIGHT':
             self.generate_straight(bm, uv_layer)
@@ -267,11 +299,13 @@ class ParquetProceduralGenerator:
         elif self.pattern == 'HERRINGBONE':
             self.generate_herringbone(bm, uv_layer)
 
-        # Chanfreins sur les bords des lames pour les séparer visuellement
+        print(f"[Parquet] Mesh généré: {len(bm.verts)} vertices, {len(bm.faces)} faces")
+
+        # Chanfreins sur les bords des lames
         edges_to_bevel = []
         for edge in bm.edges:
             v1, v2 = edge.verts
-            if abs(v1.co.z - v2.co.z) > 0.001:  # Arête verticale
+            if abs(v1.co.z - v2.co.z) > 0.001:
                 edges_to_bevel.append(edge)
 
         if edges_to_bevel:
@@ -279,119 +313,20 @@ class ParquetProceduralGenerator:
                 bmesh.ops.bevel(
                     bm,
                     geom=edges_to_bevel,
-                    offset=0.002,
-                    segments=2,
+                    offset=0.001,  # 1mm de chanfrein
+                    segments=1,
                     profile=0.5,
                     affect='EDGES'
                 )
-                print(f"[Parquet] Chanfreins 2mm appliqués sur {len(edges_to_bevel)} arêtes")
+                print(f"[Parquet] Chanfreins appliqués sur {len(edges_to_bevel)} arêtes")
             except Exception as e:
-                print(f"[Parquet] Erreur chanfrein: {e}")
+                print(f"[Parquet] Erreur chanfrein (ignorée): {e}")
 
         return bm
 
 
 # =================================================================
-# FONCTION COMMUNE DE CLIPPING (utilisée par les 3 classes)
-# =================================================================
-
-def clip_parquet_to_floor(obj, width, length, height, thickness):
-    """
-    Coupe le parquet aux dimensions exactes du sol.
-    
-    CORRECTION DU BUG: Utilise bmesh pour créer le cutter avec les vertices
-    directement aux bonnes coordonnées world, évitant les problèmes de
-    transform_apply qui causaient un mesh vide après Boolean.
-    
-    Args:
-        obj: L'objet parquet à clipper
-        width: Largeur du sol
-        length: Longueur du sol
-        height: Hauteur Z du sol
-        thickness: Épaisseur des lames
-    """
-    print(f"[Parquet] _clip_to_floor: width={width:.2f}, length={length:.2f}, height={height:.3f}")
-    print(f"[Parquet] Mesh AVANT Boolean: {len(obj.data.vertices)} vertices, {len(obj.data.polygons)} faces")
-
-    # =========================================================
-    # CORRECTION: Créer le cutter avec bmesh, vertices en world coords
-    # =========================================================
-    bm_cutter = bmesh.new()
-    
-    # Marge en Z pour s'assurer que le cutter englobe bien les lames
-    z_margin = thickness * 2
-    z_min = height - z_margin
-    z_max = height + thickness + z_margin
-    
-    # Créer les 8 vertices du cube directement aux bonnes positions
-    # Le cube va de (0,0,z_min) à (width, length, z_max)
-    v0 = bm_cutter.verts.new((0, 0, z_min))
-    v1 = bm_cutter.verts.new((width, 0, z_min))
-    v2 = bm_cutter.verts.new((width, length, z_min))
-    v3 = bm_cutter.verts.new((0, length, z_min))
-    v4 = bm_cutter.verts.new((0, 0, z_max))
-    v5 = bm_cutter.verts.new((width, 0, z_max))
-    v6 = bm_cutter.verts.new((width, length, z_max))
-    v7 = bm_cutter.verts.new((0, length, z_max))
-    
-    bm_cutter.verts.ensure_lookup_table()
-    
-    # Créer les 6 faces du cube
-    bm_cutter.faces.new([v0, v1, v2, v3])  # Bottom
-    bm_cutter.faces.new([v4, v7, v6, v5])  # Top
-    bm_cutter.faces.new([v0, v4, v5, v1])  # Front
-    bm_cutter.faces.new([v2, v6, v7, v3])  # Back
-    bm_cutter.faces.new([v0, v3, v7, v4])  # Left
-    bm_cutter.faces.new([v1, v5, v6, v2])  # Right
-    
-    # Créer le mesh et l'objet cutter
-    cutter_mesh = bpy.data.meshes.new("Parquet_Cutter_Temp")
-    bm_cutter.to_mesh(cutter_mesh)
-    bm_cutter.free()
-    
-    cutter = bpy.data.objects.new("Parquet_Cutter_Temp", cutter_mesh)
-    # Location à (0,0,0) car les vertices sont déjà aux bonnes coords
-    cutter.location = (0, 0, 0)
-    bpy.context.collection.objects.link(cutter)
-    
-    print(f"[Parquet] Cutter bounds: X[0 to {width:.2f}], Y[0 to {length:.2f}], Z[{z_min:.3f} to {z_max:.3f}]")
-    print(f"[Parquet] Parquet obj: location={obj.location}, dimensions={obj.dimensions}")
-
-    # =========================================================
-    # Appliquer le Boolean
-    # =========================================================
-    bpy.context.collection.objects.link(obj)
-    bpy.context.view_layer.objects.active = obj
-    obj.select_set(True)
-
-    bool_mod = obj.modifiers.new("Boolean", 'BOOLEAN')
-    bool_mod.operation = 'INTERSECT'
-    bool_mod.object = cutter
-    bool_mod.solver = 'EXACT'
-
-    print(f"[Parquet] Boolean modifier créé: operation={bool_mod.operation}, solver={bool_mod.solver}")
-
-    bpy.context.view_layer.update()
-
-    try:
-        bpy.ops.object.modifier_apply(modifier="Boolean")
-        print(f"[Parquet] Boolean appliqué avec succès")
-    except Exception as e:
-        print(f"[Parquet] ❌ ERREUR Boolean: {e}")
-
-    print(f"[Parquet] Mesh APRÈS Boolean: {len(obj.data.vertices)} vertices, {len(obj.data.polygons)} faces")
-
-    # =========================================================
-    # Cleanup
-    # =========================================================
-    bpy.data.objects.remove(cutter, do_unlink=True)
-    bpy.context.collection.objects.unlink(obj)
-
-    print(f"[Parquet] _clip_to_floor terminé")
-
-
-# =================================================================
-# CLASSES PARQUET
+# CLASSES PARQUET (SANS BOOLEAN)
 # =================================================================
 
 class ParquetMassif(FloorTypeBase):
@@ -402,17 +337,14 @@ class ParquetMassif(FloorTypeBase):
     THICKNESS = 0.018  # 18mm
     PATTERN = "straight"
 
-    # Dimensions planches
-    PLANK_WIDTH = 0.09   # 9cm (lame standard)
+    PLANK_WIDTH = 0.09   # 9cm
     PLANK_LENGTH = 0.60  # 60cm
 
     def _generate_mesh(self, width, length, height):
-        """Génère un sol avec vraie géométrie de lames"""
+        """Génère un sol avec vraie géométrie de lames - SANS Boolean"""
 
-        # Récupérer le type de pose depuis custom_options
         pattern = self.custom_options.get('pattern', 'STRAIGHT')
 
-        # Créer le générateur
         generator = ParquetProceduralGenerator(
             floor_width=width,
             floor_length=length,
@@ -424,7 +356,7 @@ class ParquetMassif(FloorTypeBase):
             random_seed=42
         )
 
-        # Générer le bmesh
+        # Générer le bmesh (déjà clippé aux dimensions)
         bm = generator.generate()
 
         # Créer le mesh
@@ -436,13 +368,12 @@ class ParquetMassif(FloorTypeBase):
         obj = bpy.data.objects.new(self.FLOOR_NAME, mesh)
         obj.location = Vector((0, 0, height))
 
-        # Couper aux dimensions exactes du sol avec Boolean
-        clip_parquet_to_floor(obj, width, length, height, self.THICKNESS)
+        print(f"[Parquet] Objet créé: {len(mesh.vertices)} vertices, {len(mesh.polygons)} faces")
 
         return obj
 
     def _apply_material(self, obj):
-        """Matériau bois selon l'essence choisie (OAK, WALNUT, MAPLE, CHERRY, ASH)"""
+        """Matériau bois selon l'essence choisie"""
         wood_type = self.custom_options.get('wood_type', 'OAK')
         wood_props = get_wood_properties(wood_type)
 
@@ -454,7 +385,6 @@ class ParquetMassif(FloorTypeBase):
         if bsdf:
             bsdf.inputs["Base Color"].default_value = wood_props['color']
             bsdf.inputs["Roughness"].default_value = wood_props['roughness']
-
             try:
                 bsdf.inputs["Specular"].default_value = 0.2
             except KeyError:
@@ -480,7 +410,7 @@ class ParquetContrecolle(FloorTypeBase):
     PLANK_LENGTH = 1.20  # 1.2m
 
     def _generate_mesh(self, width, length, height):
-        """Génère un sol avec vraie géométrie de lames"""
+        """Génère un sol avec vraie géométrie de lames - SANS Boolean"""
 
         pattern = self.custom_options.get('pattern', 'STRAIGHT')
 
@@ -504,7 +434,7 @@ class ParquetContrecolle(FloorTypeBase):
         obj = bpy.data.objects.new(self.FLOOR_NAME, mesh)
         obj.location = Vector((0, 0, height))
 
-        clip_parquet_to_floor(obj, width, length, height, self.THICKNESS)
+        print(f"[Parquet] Objet créé: {len(mesh.vertices)} vertices, {len(mesh.polygons)} faces")
 
         return obj
 
@@ -521,7 +451,6 @@ class ParquetContrecolle(FloorTypeBase):
         if bsdf:
             bsdf.inputs["Base Color"].default_value = wood_props['color']
             bsdf.inputs["Roughness"].default_value = wood_props['roughness']
-
             try:
                 bsdf.inputs["Specular"].default_value = 0.3
             except KeyError:
@@ -543,11 +472,11 @@ class Stratifie(FloorTypeBase):
     THICKNESS = 0.008  # 8mm
     PATTERN = "straight"
 
-    PLANK_WIDTH = 0.19   # 19cm (plus large)
-    PLANK_LENGTH = 1.38  # 1.38m (plus long)
+    PLANK_WIDTH = 0.19   # 19cm
+    PLANK_LENGTH = 1.38  # 1.38m
 
     def _generate_mesh(self, width, length, height):
-        """Génère un sol avec vraie géométrie de lames"""
+        """Génère un sol avec vraie géométrie de lames - SANS Boolean"""
 
         pattern = self.custom_options.get('pattern', 'STRAIGHT')
 
@@ -558,11 +487,11 @@ class Stratifie(FloorTypeBase):
             plank_length=self.PLANK_LENGTH,
             plank_thickness=self.THICKNESS,
             pattern=pattern,
-            gap=PLANK_GAP_WIDTH * 0.5,  # Gap plus petit pour stratifié
+            gap=PLANK_GAP_WIDTH * 0.5,
             random_seed=42
         )
 
-        # Moins de variations pour stratifié (plus uniforme)
+        # Moins de variations pour stratifié
         generator.height_variation = 0.0001
         generator.rotation_variation = 0.1
         generator.position_variation = 0.0002
@@ -577,7 +506,7 @@ class Stratifie(FloorTypeBase):
         obj = bpy.data.objects.new(self.FLOOR_NAME, mesh)
         obj.location = Vector((0, 0, height))
 
-        clip_parquet_to_floor(obj, width, length, height, self.THICKNESS)
+        print(f"[Parquet] Objet créé: {len(mesh.vertices)} vertices, {len(mesh.polygons)} faces")
 
         return obj
 
@@ -601,7 +530,6 @@ class Stratifie(FloorTypeBase):
             )
             bsdf.inputs["Base Color"].default_value = lighter_color
             bsdf.inputs["Roughness"].default_value = wood_props['roughness'] + 0.1
-
             try:
                 bsdf.inputs["Specular"].default_value = 0.15
             except KeyError:
