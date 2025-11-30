@@ -362,7 +362,11 @@ class ParquetMassif(FloorTypeBase):
         cutter.name = "Parquet_Cutter_Temp"
         cutter.scale = (width, length, self.THICKNESS * 2)
         cutter.location = (width / 2, length / 2, height + self.THICKNESS / 2)
-        bpy.ops.object.transform_apply(scale=True, location=True)
+
+        # ✅ CORRECTION CRITIQUE: Appliquer SEULEMENT le scale, PAS la location !
+        # Si on applique location, elle est réinitialisée à (0,0,0) mais les vertices
+        # restent déplacés → le cutter et le parquet ne se touchent plus !
+        bpy.ops.object.transform_apply(scale=True, location=False)
 
         print(f"[Parquet] Cutter: location={cutter.location}, dimensions={cutter.dimensions}")
 
