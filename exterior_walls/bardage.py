@@ -6,6 +6,9 @@
 #  Bardage bois avec 3 shaders : Naturel, Peint, Shou Sugi Ban
 #  Types de pose : Horizontal, Vertical, Claire-voie, Clin
 #
+#  ✅ MISE À JOUR: Support des ouvertures (fenêtres/portes)
+#     Les lames sont automatiquement clippées autour des ouvertures
+#
 # ##### END GPL LICENSE BLOCK #####
 
 import bpy
@@ -33,7 +36,10 @@ PAINT_COLOR_PRESETS = {
 
 
 class ExteriorBardage:
-    """Générateur de bardage bois pour façades extérieures"""
+    """Générateur de bardage bois pour façades extérieures
+    
+    ✅ Supporte les ouvertures (fenêtres/portes) avec clipping automatique
+    """
 
     def __init__(self,
                  wall_width=6.0,
@@ -56,7 +62,9 @@ class ExteriorBardage:
                  # Variations
                  plank_variation=0.5,
                  height_variation=0.001,
-                 random_seed=42):
+                 random_seed=42,
+                 # ✅ NOUVEAU: Ouvertures
+                 openings=None):
         """
         Initialise le générateur de bardage.
 
@@ -78,6 +86,7 @@ class ExteriorBardage:
             plank_variation: Variation entre lames
             height_variation: Variation de hauteur
             random_seed: Seed aléatoire
+            openings: Liste des ouvertures [{'x', 'z', 'width', 'height'}, ...]
         """
         self.wall_width = wall_width
         self.wall_height = wall_height
@@ -96,21 +105,31 @@ class ExteriorBardage:
         self.plank_variation = plank_variation
         self.height_variation = height_variation
         self.random_seed = random_seed
+        
+        # ✅ NOUVEAU: Stocker les ouvertures
+        self.openings = openings if openings else []
 
         print(f"[ExteriorBardage] Type: {pose_type}, Matériau: {material_type}")
+        if self.openings:
+            print(f"[ExteriorBardage] {len(self.openings)} ouverture(s) à éviter")
 
-    def generate_for_wall(self, wall_obj, collection):
+    def generate_for_wall(self, wall_obj, collection, openings=None):
         """
         Génère le bardage pour un mur existant ou crée un nouveau mur.
 
         Args:
             wall_obj: Objet mur existant (ou None pour créer nouveau)
             collection: Collection Blender où créer les objets
+            openings: Liste des ouvertures (optionnel, override self.openings)
 
         Returns:
             Objet Blender avec le bardage appliqué
         """
         random.seed(self.random_seed)
+        
+        # ✅ Permettre de passer les ouvertures à la génération
+        if openings is not None:
+            self.openings = openings
 
         # Si le mur existe (briques 3D ou mur simple), on applique juste le matériau
         if wall_obj and wall_obj.data:
@@ -135,9 +154,10 @@ class ExteriorBardage:
         return obj
 
     def create_cladding_mesh(self, collection):
-        """Crée le mesh du bardage"""
+        """Crée le mesh du bardage avec gestion des ouvertures"""
 
-        print(f"[Bardage] create_cladding_mesh: pose_type={self.pose_type}, wall_width={self.wall_width}, wall_height={self.wall_height}")
+        print(f"[Bardage] create_cladding_mesh: pose_type={self.pose_type}, "
+              f"wall_width={self.wall_width}, wall_height={self.wall_height}")
 
         bm = bmesh.new()
         uv_layer = bm.loops.layers.uv.new("UVMap")
@@ -151,6 +171,7 @@ class ExteriorBardage:
         plank_step = self.plank_width + actual_gap
 
         print(f"[Bardage] plank_step={plank_step:.3f}, actual_gap={actual_gap:.3f}")
+        print(f"[Bardage] {len(self.openings)} ouverture(s) à gérer")
 
         if self.pose_type in ['HORIZONTAL', 'CLIN']:
             print(f"[Bardage] Création lames HORIZONTALES")
@@ -169,10 +190,6 @@ class ExteriorBardage:
 
         print(f"[Bardage] Mesh '{mesh_name}' créé: {len(mesh.vertices)} vertices, {len(mesh.polygons)} faces")
 
-        # Chanfrein
-        if self.bevel_width > 0:
-            self._apply_bevel(mesh)
-
         # Créer l'objet
         obj = bpy.data.objects.new(mesh_name, mesh)
         collection.objects.link(obj)
@@ -185,87 +202,294 @@ class ExteriorBardage:
 
         return obj
 
+    # =========================================================================
+    # ✅ NOUVEAU: Fonctions de détection de collision avec ouvertures
+    # =========================================================================
+
+    def _is_in_opening(self, x_start, x_end, z_start, z_end):
+        """
+        Vérifie si un rectangle (lame) est ENTIÈREMENT dans une ouverture.
+        
+        Returns:
+            True si la lame est complètement masquée par une ouverture
+        """
+        for opening in self.openings:
+            op_x = opening.get('x', 0)
+            op_z = opening.get('z', 0)
+            op_w = opening.get('width', 0)
+            op_h = opening.get('height', 0)
+            
+            op_x_end = op_x + op_w
+            op_z_end = op_z + op_h
+            
+            # La lame est entièrement dans l'ouverture ?
+            if (x_start >= op_x and x_end <= op_x_end and
+                z_start >= op_z and z_end <= op_z_end):
+                return True
+        
+        return False
+
+    def _get_opening_intersections(self, x_start, x_end, z_start, z_end):
+        """
+        Trouve les ouvertures qui intersectent un rectangle (lame).
+        
+        Returns:
+            Liste des ouvertures qui chevauchent la lame
+        """
+        intersections = []
+        
+        for opening in self.openings:
+            op_x = opening.get('x', 0)
+            op_z = opening.get('z', 0)
+            op_w = opening.get('width', 0)
+            op_h = opening.get('height', 0)
+            
+            op_x_end = op_x + op_w
+            op_z_end = op_z + op_h
+            
+            # Test d'intersection rectangulaire
+            if (x_start < op_x_end and x_end > op_x and
+                z_start < op_z_end and z_end > op_z):
+                intersections.append({
+                    'x': op_x,
+                    'z': op_z,
+                    'x_end': op_x_end,
+                    'z_end': op_z_end,
+                    'width': op_w,
+                    'height': op_h
+                })
+        
+        return intersections
+
+    def _split_plank_around_openings(self, x_start, x_end, z_start, z_end, horizontal=True):
+        """
+        Découpe une lame en segments qui évitent les ouvertures.
+        
+        Args:
+            x_start, x_end: Limites X de la lame
+            z_start, z_end: Limites Z de la lame
+            horizontal: True si lame horizontale, False si verticale
+        
+        Returns:
+            Liste de tuples (start, end) représentant les segments valides
+        """
+        intersections = self._get_opening_intersections(x_start, x_end, z_start, z_end)
+        
+        if not intersections:
+            # Pas d'intersection, retourner la lame entière
+            if horizontal:
+                return [(x_start, x_end)]
+            else:
+                return [(z_start, z_end)]
+        
+        if horizontal:
+            # Lame horizontale: découper selon X
+            segments = []
+            current_start = x_start
+            
+            # Trier les ouvertures par position X
+            sorted_openings = sorted(intersections, key=lambda o: o['x'])
+            
+            for opening in sorted_openings:
+                op_x = opening['x']
+                op_x_end = opening['x_end']
+                
+                # Segment avant l'ouverture
+                if current_start < op_x:
+                    segment_end = min(op_x, x_end)
+                    if segment_end - current_start > 0.02:  # Au moins 2cm
+                        segments.append((current_start, segment_end))
+                
+                # Avancer après l'ouverture
+                current_start = max(current_start, op_x_end)
+            
+            # Segment après la dernière ouverture
+            if current_start < x_end:
+                if x_end - current_start > 0.02:
+                    segments.append((current_start, x_end))
+            
+            return segments
+        
+        else:
+            # Lame verticale: découper selon Z
+            segments = []
+            current_start = z_start
+            
+            # Trier les ouvertures par position Z
+            sorted_openings = sorted(intersections, key=lambda o: o['z'])
+            
+            for opening in sorted_openings:
+                op_z = opening['z']
+                op_z_end = opening['z_end']
+                
+                # Segment avant l'ouverture
+                if current_start < op_z:
+                    segment_end = min(op_z, z_end)
+                    if segment_end - current_start > 0.02:
+                        segments.append((current_start, segment_end))
+                
+                # Avancer après l'ouverture
+                current_start = max(current_start, op_z_end)
+            
+            # Segment après la dernière ouverture
+            if current_start < z_end:
+                if z_end - current_start > 0.02:
+                    segments.append((current_start, z_end))
+            
+            return segments
+
+    # =========================================================================
+    # ✅ MODIFIÉ: Création des lames avec gestion des ouvertures
+    # =========================================================================
+
     def _create_horizontal_planks(self, bm, uv_layer, plank_step):
-        """Crée les lames horizontales"""
+        """Crée les lames horizontales en évitant les ouvertures"""
 
         num_planks = int(math.ceil(self.wall_height / plank_step))
+        planks_created = 0
+        planks_skipped = 0
 
         for i in range(num_planks):
-            y_pos = i * plank_step + self.plank_width / 2
+            z_center = i * plank_step + self.plank_width / 2
 
-            if y_pos + self.plank_width / 2 > self.wall_height:
+            if z_center + self.plank_width / 2 > self.wall_height:
                 continue
 
+            z_start = z_center - self.plank_width / 2
+            z_end = z_center + self.plank_width / 2
+
             # Variation de profondeur pour le clin
-            z_offset = 0
+            y_offset = 0
             if self.pose_type == 'CLIN':
-                z_offset = (i % 2) * self.plank_thickness * 0.3
+                y_offset = (i % 2) * self.plank_thickness * 0.3
 
             # Variation hauteur
             z_var = random.uniform(-self.height_variation, self.height_variation)
 
-            self._create_plank(
-                bm, uv_layer,
-                0, y_pos, z_offset + z_var,
-                self.wall_width, self.plank_width, self.plank_thickness,
-                horizontal=True,
-                plank_index=i
+            # ✅ Découper la lame autour des ouvertures
+            segments = self._split_plank_around_openings(
+                x_start=0,
+                x_end=self.wall_width,
+                z_start=z_start,
+                z_end=z_end,
+                horizontal=True
             )
 
+            if not segments:
+                planks_skipped += 1
+                continue
+
+            # Créer un segment de lame pour chaque partie visible
+            for seg_start, seg_end in segments:
+                seg_width = seg_end - seg_start
+                seg_x_center = (seg_start + seg_end) / 2
+
+                self._create_plank_segment(
+                    bm, uv_layer,
+                    x_center=seg_x_center,
+                    z_center=z_center + z_var,
+                    y_offset=y_offset,
+                    width=seg_width,
+                    height=self.plank_width,
+                    thickness=self.plank_thickness,
+                    horizontal=True,
+                    plank_index=i
+                )
+                planks_created += 1
+
+        print(f"[Bardage] Lames horizontales: {planks_created} créées, {planks_skipped} skippées")
+
     def _create_vertical_planks(self, bm, uv_layer, plank_step):
-        """Crée les lames verticales"""
+        """Crée les lames verticales en évitant les ouvertures"""
 
         num_planks = int(math.ceil(self.wall_width / plank_step))
+        planks_created = 0
+        planks_skipped = 0
 
         for i in range(num_planks):
-            x_pos = i * plank_step + self.plank_width / 2
+            x_center = i * plank_step + self.plank_width / 2
 
-            if x_pos + self.plank_width / 2 > self.wall_width:
+            if x_center + self.plank_width / 2 > self.wall_width:
                 continue
+
+            x_start = x_center - self.plank_width / 2
+            x_end = x_center + self.plank_width / 2
 
             z_var = random.uniform(-self.height_variation, self.height_variation)
 
-            self._create_plank(
-                bm, uv_layer,
-                x_pos, 0, z_var,
-                self.plank_width, self.wall_height, self.plank_thickness,
-                horizontal=False,
-                plank_index=i
+            # ✅ Découper la lame autour des ouvertures
+            segments = self._split_plank_around_openings(
+                x_start=x_start,
+                x_end=x_end,
+                z_start=0,
+                z_end=self.wall_height,
+                horizontal=False
             )
 
-    def _create_plank(self, bm, uv_layer, x, y, z, width, height, thickness, horizontal=True, plank_index=0):
-        """Crée une lame individuelle"""
+            if not segments:
+                planks_skipped += 1
+                continue
+
+            # Créer un segment de lame pour chaque partie visible
+            for seg_start, seg_end in segments:
+                seg_height = seg_end - seg_start
+                seg_z_center = (seg_start + seg_end) / 2
+
+                self._create_plank_segment(
+                    bm, uv_layer,
+                    x_center=x_center,
+                    z_center=seg_z_center + z_var,
+                    y_offset=0,
+                    width=self.plank_width,
+                    height=seg_height,
+                    thickness=self.plank_thickness,
+                    horizontal=False,
+                    plank_index=i
+                )
+                planks_created += 1
+
+        print(f"[Bardage] Lames verticales: {planks_created} créées, {planks_skipped} skippées")
+
+    def _create_plank_segment(self, bm, uv_layer, x_center, z_center, y_offset,
+                               width, height, thickness, horizontal=True, plank_index=0):
+        """
+        Crée un segment de lame (peut être une lame complète ou partielle).
+        
+        ✅ NOUVEAU: Remplace l'ancienne fonction _create_plank
+        """
+        half_w = width / 2
+        half_h = height / 2
 
         if horizontal:
-            # Lame horizontale
+            # Lame horizontale: s'étend en X, hauteur en Z
             verts = [
-                Vector((0, y - height/2, z)),
-                Vector((width, y - height/2, z)),
-                Vector((width, y + height/2, z)),
-                Vector((0, y + height/2, z)),
-                Vector((0, y - height/2, z + thickness)),
-                Vector((width, y - height/2, z + thickness)),
-                Vector((width, y + height/2, z + thickness)),
-                Vector((0, y + height/2, z + thickness)),
+                Vector((x_center - half_w, y_offset, z_center - half_h)),
+                Vector((x_center + half_w, y_offset, z_center - half_h)),
+                Vector((x_center + half_w, y_offset, z_center + half_h)),
+                Vector((x_center - half_w, y_offset, z_center + half_h)),
+                Vector((x_center - half_w, y_offset + thickness, z_center - half_h)),
+                Vector((x_center + half_w, y_offset + thickness, z_center - half_h)),
+                Vector((x_center + half_w, y_offset + thickness, z_center + half_h)),
+                Vector((x_center - half_w, y_offset + thickness, z_center + half_h)),
             ]
         else:
-            # Lame verticale
+            # Lame verticale: s'étend en Z, largeur en X
             verts = [
-                Vector((x - width/2, 0, z)),
-                Vector((x + width/2, 0, z)),
-                Vector((x + width/2, height, z)),
-                Vector((x - width/2, height, z)),
-                Vector((x - width/2, 0, z + thickness)),
-                Vector((x + width/2, 0, z + thickness)),
-                Vector((x + width/2, height, z + thickness)),
-                Vector((x - width/2, height, z + thickness)),
+                Vector((x_center - half_w, y_offset, z_center - half_h)),
+                Vector((x_center + half_w, y_offset, z_center - half_h)),
+                Vector((x_center + half_w, y_offset, z_center + half_h)),
+                Vector((x_center - half_w, y_offset, z_center + half_h)),
+                Vector((x_center - half_w, y_offset + thickness, z_center - half_h)),
+                Vector((x_center + half_w, y_offset + thickness, z_center - half_h)),
+                Vector((x_center + half_w, y_offset + thickness, z_center + half_h)),
+                Vector((x_center - half_w, y_offset + thickness, z_center + half_h)),
             ]
 
         bm_verts = [bm.verts.new(v) for v in verts]
         bm.verts.ensure_lookup_table()
 
         faces = [
-            (0, 1, 2, 3),  # Back
+            (0, 1, 2, 3),  # Back (face visible)
             (4, 7, 6, 5),  # Front
             (0, 4, 5, 1),  # Bottom
             (2, 6, 7, 3),  # Top
@@ -282,9 +506,9 @@ class ExteriorBardage:
                     for loop in f.loops:
                         if horizontal:
                             u = (loop.vert.co.x) / self.wall_width
-                            v = (loop.vert.co.y - y + height/2) / height
+                            v = (loop.vert.co.z - z_center + half_h) / height
                         else:
-                            u = (loop.vert.co.x - x + width/2) / width
+                            u = (loop.vert.co.x - x_center + half_w) / width
                             v = (loop.vert.co.z) / self.wall_height
 
                         # Ajouter offset par lame pour variation
@@ -293,10 +517,9 @@ class ExteriorBardage:
             except:
                 pass
 
-    def _apply_bevel(self, mesh):
-        """Applique chanfrein sur le mesh"""
-        # Cette méthode nécessite un objet actif, sera appliquée différemment
-        pass
+    # =========================================================================
+    # MATÉRIAUX (inchangés)
+    # =========================================================================
 
     def create_material(self):
         """Crée le matériau selon le type sélectionné"""
