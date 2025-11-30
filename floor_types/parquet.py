@@ -130,7 +130,6 @@ class ParquetProceduralGenerator:
             x = row * plank_w + self.plank_width / 2
 
             # Permettre aux lames de dépasser très légèrement (Boolean les clippera)
-            # LIMITE RÉDUITE pour éviter l'effet "tétris"
             if x - self.plank_width / 2 > self.floor_width + self.plank_width * 0.5:
                 continue
 
@@ -193,7 +192,6 @@ class ParquetProceduralGenerator:
                 px = x + v_width / 2
                 py = base_y + v_height / 2
 
-                # LIMITE RÉDUITE pour éviter l'effet "tétris"
                 if px < self.floor_width / 2 + plank_l * 0.5 and py < self.floor_length + plank_l * 0.5:
                     self.create_plank(
                         bm, px, py, 0,
@@ -209,7 +207,6 @@ class ParquetProceduralGenerator:
                 px = self.floor_width - x - v_width / 2
                 py = base_y + v_height / 2
 
-                # LIMITE RÉDUITE pour éviter l'effet "tétris"
                 if px > -plank_l * 0.5 and py < self.floor_length + plank_l * 0.5:
                     self.create_plank(
                         bm, px, py, 0,
@@ -240,7 +237,6 @@ class ParquetProceduralGenerator:
                 px1 = base_x + self.plank_length / 2
                 py1 = base_y + self.plank_width / 2
 
-                # LIMITE RÉDUITE pour éviter l'effet "tétris"
                 if px1 < self.floor_width + plank_l * 0.5 and py1 < self.floor_length + plank_w * 0.5:
                     self.create_plank(
                         bm, px1, py1, 0,
@@ -252,7 +248,6 @@ class ParquetProceduralGenerator:
                 px2 = base_x + self.plank_width / 2 + self.plank_length
                 py2 = base_y + self.plank_length / 2
 
-                # LIMITE RÉDUITE pour éviter l'effet "tétris"
                 if px2 < self.floor_width + plank_w * 0.5 and py2 < self.floor_length + plank_l * 0.5:
                     self.create_plank(
                         bm, px2, py2, 0,
@@ -272,23 +267,20 @@ class ParquetProceduralGenerator:
         elif self.pattern == 'HERRINGBONE':
             self.generate_herringbone(bm, uv_layer)
 
-        # ✅ AJOUT: Chanfreins sur les bords des lames pour les séparer visuellement
-        # Sélectionner toutes les arêtes verticales (bords des lames)
+        # Chanfreins sur les bords des lames pour les séparer visuellement
         edges_to_bevel = []
         for edge in bm.edges:
-            # Les arêtes verticales ont leurs 2 vertices avec une différence en Z
             v1, v2 = edge.verts
             if abs(v1.co.z - v2.co.z) > 0.001:  # Arête verticale
                 edges_to_bevel.append(edge)
 
-        # Appliquer un chanfrein visible pour séparer visuellement les lames
         if edges_to_bevel:
             try:
                 bmesh.ops.bevel(
                     bm,
                     geom=edges_to_bevel,
-                    offset=0.002,  # ✅ 2mm de chanfrein (plus visible après Boolean EXACT)
-                    segments=2,    # ✅ 2 segments pour un chanfrein plus net
+                    offset=0.002,
+                    segments=2,
                     profile=0.5,
                     affect='EDGES'
                 )
@@ -297,6 +289,105 @@ class ParquetProceduralGenerator:
                 print(f"[Parquet] Erreur chanfrein: {e}")
 
         return bm
+
+
+# =================================================================
+# FONCTION COMMUNE DE CLIPPING (utilisée par les 3 classes)
+# =================================================================
+
+def clip_parquet_to_floor(obj, width, length, height, thickness):
+    """
+    Coupe le parquet aux dimensions exactes du sol.
+    
+    CORRECTION DU BUG: Utilise bmesh pour créer le cutter avec les vertices
+    directement aux bonnes coordonnées world, évitant les problèmes de
+    transform_apply qui causaient un mesh vide après Boolean.
+    
+    Args:
+        obj: L'objet parquet à clipper
+        width: Largeur du sol
+        length: Longueur du sol
+        height: Hauteur Z du sol
+        thickness: Épaisseur des lames
+    """
+    print(f"[Parquet] _clip_to_floor: width={width:.2f}, length={length:.2f}, height={height:.3f}")
+    print(f"[Parquet] Mesh AVANT Boolean: {len(obj.data.vertices)} vertices, {len(obj.data.polygons)} faces")
+
+    # =========================================================
+    # CORRECTION: Créer le cutter avec bmesh, vertices en world coords
+    # =========================================================
+    bm_cutter = bmesh.new()
+    
+    # Marge en Z pour s'assurer que le cutter englobe bien les lames
+    z_margin = thickness * 2
+    z_min = height - z_margin
+    z_max = height + thickness + z_margin
+    
+    # Créer les 8 vertices du cube directement aux bonnes positions
+    # Le cube va de (0,0,z_min) à (width, length, z_max)
+    v0 = bm_cutter.verts.new((0, 0, z_min))
+    v1 = bm_cutter.verts.new((width, 0, z_min))
+    v2 = bm_cutter.verts.new((width, length, z_min))
+    v3 = bm_cutter.verts.new((0, length, z_min))
+    v4 = bm_cutter.verts.new((0, 0, z_max))
+    v5 = bm_cutter.verts.new((width, 0, z_max))
+    v6 = bm_cutter.verts.new((width, length, z_max))
+    v7 = bm_cutter.verts.new((0, length, z_max))
+    
+    bm_cutter.verts.ensure_lookup_table()
+    
+    # Créer les 6 faces du cube
+    bm_cutter.faces.new([v0, v1, v2, v3])  # Bottom
+    bm_cutter.faces.new([v4, v7, v6, v5])  # Top
+    bm_cutter.faces.new([v0, v4, v5, v1])  # Front
+    bm_cutter.faces.new([v2, v6, v7, v3])  # Back
+    bm_cutter.faces.new([v0, v3, v7, v4])  # Left
+    bm_cutter.faces.new([v1, v5, v6, v2])  # Right
+    
+    # Créer le mesh et l'objet cutter
+    cutter_mesh = bpy.data.meshes.new("Parquet_Cutter_Temp")
+    bm_cutter.to_mesh(cutter_mesh)
+    bm_cutter.free()
+    
+    cutter = bpy.data.objects.new("Parquet_Cutter_Temp", cutter_mesh)
+    # Location à (0,0,0) car les vertices sont déjà aux bonnes coords
+    cutter.location = (0, 0, 0)
+    bpy.context.collection.objects.link(cutter)
+    
+    print(f"[Parquet] Cutter bounds: X[0 to {width:.2f}], Y[0 to {length:.2f}], Z[{z_min:.3f} to {z_max:.3f}]")
+    print(f"[Parquet] Parquet obj: location={obj.location}, dimensions={obj.dimensions}")
+
+    # =========================================================
+    # Appliquer le Boolean
+    # =========================================================
+    bpy.context.collection.objects.link(obj)
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+
+    bool_mod = obj.modifiers.new("Boolean", 'BOOLEAN')
+    bool_mod.operation = 'INTERSECT'
+    bool_mod.object = cutter
+    bool_mod.solver = 'EXACT'
+
+    print(f"[Parquet] Boolean modifier créé: operation={bool_mod.operation}, solver={bool_mod.solver}")
+
+    bpy.context.view_layer.update()
+
+    try:
+        bpy.ops.object.modifier_apply(modifier="Boolean")
+        print(f"[Parquet] Boolean appliqué avec succès")
+    except Exception as e:
+        print(f"[Parquet] ❌ ERREUR Boolean: {e}")
+
+    print(f"[Parquet] Mesh APRÈS Boolean: {len(obj.data.vertices)} vertices, {len(obj.data.polygons)} faces")
+
+    # =========================================================
+    # Cleanup
+    # =========================================================
+    bpy.data.objects.remove(cutter, do_unlink=True)
+    bpy.context.collection.objects.unlink(obj)
+
+    print(f"[Parquet] _clip_to_floor terminé")
 
 
 # =================================================================
@@ -346,66 +437,12 @@ class ParquetMassif(FloorTypeBase):
         obj.location = Vector((0, 0, height))
 
         # Couper aux dimensions exactes du sol avec Boolean
-        self._clip_to_floor(obj, width, length, height)
+        clip_parquet_to_floor(obj, width, length, height, self.THICKNESS)
 
         return obj
 
-    def _clip_to_floor(self, obj, width, length, height):
-        """Coupe le parquet aux dimensions exactes du sol"""
-
-        print(f"[Parquet] _clip_to_floor: width={width:.2f}, length={length:.2f}, height={height:.3f}")
-        print(f"[Parquet] Mesh AVANT Boolean: {len(obj.data.vertices)} vertices, {len(obj.data.polygons)} faces")
-
-        # Créer un cube de clipping
-        bpy.ops.mesh.primitive_cube_add(size=1)
-        cutter = bpy.context.active_object
-        cutter.name = "Parquet_Cutter_Temp"
-        cutter.scale = (width, length, self.THICKNESS * 2)
-        cutter.location = (width / 2, length / 2, height + self.THICKNESS / 2)
-
-        # ✅ CORRECTION CRITIQUE: Appliquer SEULEMENT le scale, PAS la location !
-        # Si on applique location, elle est réinitialisée à (0,0,0) mais les vertices
-        # restent déplacés → le cutter et le parquet ne se touchent plus !
-        bpy.ops.object.transform_apply(scale=True, location=False)
-
-        print(f"[Parquet] Cutter: location={cutter.location}, dimensions={cutter.dimensions}")
-
-        # Lier l'objet parquet à la scène pour appliquer le Boolean
-        bpy.context.collection.objects.link(obj)
-        bpy.context.view_layer.objects.active = obj
-
-        print(f"[Parquet] Parquet obj: location={obj.location}, dimensions={obj.dimensions}")
-
-        # Appliquer Boolean (EXACT solver pour meilleure précision)
-        bool_mod = obj.modifiers.new("Boolean", 'BOOLEAN')
-        bool_mod.operation = 'INTERSECT'
-        bool_mod.object = cutter
-        bool_mod.solver = 'EXACT'  # Plus précis que FAST, évite l'effet "tétris"
-
-        print(f"[Parquet] Boolean modifier créé: operation={bool_mod.operation}, solver={bool_mod.solver}")
-
-        # Appliquer le modificateur
-        bpy.context.view_layer.update()
-
-        try:
-            bpy.ops.object.modifier_apply(modifier="Boolean")
-            print(f"[Parquet] Boolean appliqué avec succès")
-        except Exception as e:
-            print(f"[Parquet] ❌ ERREUR Boolean: {e}")
-
-        print(f"[Parquet] Mesh APRÈS Boolean: {len(obj.data.vertices)} vertices, {len(obj.data.polygons)} faces")
-
-        # Supprimer le cutter
-        bpy.data.objects.remove(cutter)
-
-        # Retirer de la scène (sera réajouté par le système principal)
-        bpy.context.collection.objects.unlink(obj)
-
-        print(f"[Parquet] _clip_to_floor terminé")
-
     def _apply_material(self, obj):
         """Matériau bois selon l'essence choisie (OAK, WALNUT, MAPLE, CHERRY, ASH)"""
-        # Récupérer l'essence de bois depuis les custom_options
         wood_type = self.custom_options.get('wood_type', 'OAK')
         wood_props = get_wood_properties(wood_type)
 
@@ -415,11 +452,9 @@ class ParquetMassif(FloorTypeBase):
 
         bsdf = mat.node_tree.nodes.get("Principled BSDF")
         if bsdf:
-            # Utiliser la couleur de l'essence choisie
             bsdf.inputs["Base Color"].default_value = wood_props['color']
             bsdf.inputs["Roughness"].default_value = wood_props['roughness']
 
-            # FIX Blender 4.2: "Specular" n'existe plus
             try:
                 bsdf.inputs["Specular"].default_value = 0.2
             except KeyError:
@@ -469,34 +504,9 @@ class ParquetContrecolle(FloorTypeBase):
         obj = bpy.data.objects.new(self.FLOOR_NAME, mesh)
         obj.location = Vector((0, 0, height))
 
-        self._clip_to_floor(obj, width, length, height)
+        clip_parquet_to_floor(obj, width, length, height, self.THICKNESS)
 
         return obj
-
-    def _clip_to_floor(self, obj, width, length, height):
-        """Coupe le parquet aux dimensions exactes du sol"""
-
-        bpy.ops.mesh.primitive_cube_add(size=1)
-        cutter = bpy.context.active_object
-        cutter.name = "Parquet_Cutter_Temp"
-        cutter.scale = (width, length, self.THICKNESS * 2)
-        cutter.location = (width / 2, length / 2, height + self.THICKNESS / 2)
-        bpy.ops.object.transform_apply(scale=True, location=True)
-
-        bpy.context.collection.objects.link(obj)
-        bpy.context.view_layer.objects.active = obj
-
-        # Appliquer Boolean (EXACT solver pour meilleure précision)
-        bool_mod = obj.modifiers.new("Boolean", 'BOOLEAN')
-        bool_mod.operation = 'INTERSECT'
-        bool_mod.object = cutter
-        bool_mod.solver = 'EXACT'  # Plus précis que FAST, évite l'effet "tétris"
-
-        bpy.context.view_layer.update()
-        bpy.ops.object.modifier_apply(modifier="Boolean")
-
-        bpy.data.objects.remove(cutter)
-        bpy.context.collection.objects.unlink(obj)
 
     def _apply_material(self, obj):
         """Matériau bois selon l'essence choisie"""
@@ -512,7 +522,6 @@ class ParquetContrecolle(FloorTypeBase):
             bsdf.inputs["Base Color"].default_value = wood_props['color']
             bsdf.inputs["Roughness"].default_value = wood_props['roughness']
 
-            # FIX Blender 4.2: "Specular" n'existe plus
             try:
                 bsdf.inputs["Specular"].default_value = 0.3
             except KeyError:
@@ -568,34 +577,9 @@ class Stratifie(FloorTypeBase):
         obj = bpy.data.objects.new(self.FLOOR_NAME, mesh)
         obj.location = Vector((0, 0, height))
 
-        self._clip_to_floor(obj, width, length, height)
+        clip_parquet_to_floor(obj, width, length, height, self.THICKNESS)
 
         return obj
-
-    def _clip_to_floor(self, obj, width, length, height):
-        """Coupe le parquet aux dimensions exactes du sol"""
-
-        bpy.ops.mesh.primitive_cube_add(size=1)
-        cutter = bpy.context.active_object
-        cutter.name = "Parquet_Cutter_Temp"
-        cutter.scale = (width, length, self.THICKNESS * 2)
-        cutter.location = (width / 2, length / 2, height + self.THICKNESS / 2)
-        bpy.ops.object.transform_apply(scale=True, location=True)
-
-        bpy.context.collection.objects.link(obj)
-        bpy.context.view_layer.objects.active = obj
-
-        # Appliquer Boolean (EXACT solver pour meilleure précision)
-        bool_mod = obj.modifiers.new("Boolean", 'BOOLEAN')
-        bool_mod.operation = 'INTERSECT'
-        bool_mod.object = cutter
-        bool_mod.solver = 'EXACT'  # Plus précis que FAST, évite l'effet "tétris"
-
-        bpy.context.view_layer.update()
-        bpy.ops.object.modifier_apply(modifier="Boolean")
-
-        bpy.data.objects.remove(cutter)
-        bpy.context.collection.objects.unlink(obj)
 
     def _apply_material(self, obj):
         """Matériau stratifié - imitation bois"""
@@ -608,7 +592,6 @@ class Stratifie(FloorTypeBase):
 
         bsdf = mat.node_tree.nodes.get("Principled BSDF")
         if bsdf:
-            # Imitation: légèrement plus clair et plus rough que le vrai bois
             color = wood_props['color']
             lighter_color = (
                 min(color[0] * 1.1, 1.0),
@@ -619,7 +602,6 @@ class Stratifie(FloorTypeBase):
             bsdf.inputs["Base Color"].default_value = lighter_color
             bsdf.inputs["Roughness"].default_value = wood_props['roughness'] + 0.1
 
-            # FIX Blender 4.2: "Specular" n'existe plus
             try:
                 bsdf.inputs["Specular"].default_value = 0.15
             except KeyError:
