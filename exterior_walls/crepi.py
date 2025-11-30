@@ -140,9 +140,15 @@ class ExteriorCrepi:
 
         bm = bmesh.new()
 
+        # ✅ FIX: Protection division par zéro si dimensions nulles
+        max_dim = max(width, height)
+        if max_dim < 0.01:  # Dimensions trop petites
+            print(f"[ExteriorCrepi] ⚠️ Dimensions invalides: width={width:.3f}, height={height:.3f}")
+            max_dim = 1.0  # Valeur par défaut pour éviter division par zéro
+
         # Subdivisions adaptées
-        sub_x = max(8, int(32 * (width / max(width, height))))
-        sub_y = max(8, int(32 * (height / max(width, height))))
+        sub_x = max(8, int(32 * (width / max_dim)))
+        sub_y = max(8, int(32 * (height / max_dim)))
 
         # Créer grille
         bmesh.ops.create_grid(bm, x_segments=sub_x, y_segments=sub_y, size=1.0)
