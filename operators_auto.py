@@ -517,6 +517,20 @@ class HOUSE_OT_generate_auto(Operator):
     def _generate_walls(self, context, props, collection):
         """Génère les murs extérieurs (SIMPLE ou BRIQUES 3D) - ULTIMATE"""
 
+        # === SI FINITION EXTÉRIEURE ACTIVÉE : SKIP CRÉATION MURS ===
+        # La finition (crépi/bardage/pierre) REMPLACE le mur au lieu de se superposer
+        use_exterior_finish = (
+            (hasattr(props, 'use_exterior_crepi') and props.use_exterior_crepi) or
+            (hasattr(props, 'use_exterior_bardage') and props.use_exterior_bardage) or
+            (hasattr(props, 'use_exterior_pierre') and props.use_exterior_pierre)
+        )
+
+        if use_exterior_finish:
+            print("[House] ✅ Finition extérieure activée → Skip création murs (la finition devient le mur)")
+            # Retourner liste vide, les finitions seront créées dans _apply_materials
+            self.real_wall_height = props.num_floors * props.floor_height
+            return []
+
         # === SI BRIQUES 3D : NOUVEAU SYSTÈME COMPLET ===
         if props.wall_construction_type == 'BRICK_3D':
             print(f"[House] Génération murs en briques 3D (qualité: {props.brick_3d_quality})")
@@ -2248,8 +2262,16 @@ class HOUSE_OT_generate_auto(Operator):
         floor_mat = self._get_or_create_material("House_Floor", floor_color)
         glass_mat = self._get_or_create_glass_material("House_Glass")
 
-        # ✅ FIX: Appliquer les finitions extérieures UNE SEULE FOIS (pas pour chaque objet wall)
-        exterior_finishes_applied = False
+        # ✅ FINITIONS EXTÉRIEURES - Créer AVANT la boucle (remplacent les murs)
+        # Les finitions sont créées indépendamment des murs existants
+        if hasattr(props, 'use_exterior_crepi') and props.use_exterior_crepi:
+            self._apply_exterior_crepi(None, props, collection)
+
+        if hasattr(props, 'use_exterior_bardage') and props.use_exterior_bardage:
+            self._apply_exterior_bardage(None, props, collection)
+
+        if hasattr(props, 'use_exterior_pierre') and props.use_exterior_pierre:
+            self._apply_exterior_pierre(None, props, collection)
 
         for obj in collection.objects:
             if obj.type != 'MESH' or obj.hide_render:
@@ -2261,22 +2283,6 @@ class HOUSE_OT_generate_auto(Operator):
                 # Murs simples uniquement (pas les briques qui ont déjà leur matériau)
                 if props.wall_construction_type == 'SIMPLE' and len(obj.data.materials) == 0:
                     obj.data.materials.append(wall_mat)
-
-                # ✅ FINITIONS EXTÉRIEURES - Appliquer une seule fois sur les 4 façades
-                if not exterior_finishes_applied:
-                    exterior_finishes_applied = True
-
-                    # CRÉPI/ENDUIT EXTÉRIEUR
-                    if hasattr(props, 'use_exterior_crepi') and props.use_exterior_crepi:
-                        self._apply_exterior_crepi(obj, props, collection)
-
-                    # BARDAGE BOIS EXTÉRIEUR
-                    if hasattr(props, 'use_exterior_bardage') and props.use_exterior_bardage:
-                        self._apply_exterior_bardage(obj, props, collection)
-
-                    # PIERRE DE PAREMENT EXTÉRIEUR
-                    if hasattr(props, 'use_exterior_pierre') and props.use_exterior_pierre:
-                        self._apply_exterior_pierre(obj, props, collection)
             elif part_type == "roof":
                 obj.data.materials.clear()
                 obj.data.materials.append(roof_mat)
