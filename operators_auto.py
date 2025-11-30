@@ -2092,6 +2092,8 @@ class HOUSE_OT_generate_auto(Operator):
             custom_color = tuple(props.bardage_paint_custom_color)
 
         try:
+            print(f"[Bardage] Dimensions mur: {wall_obj.dimensions}, location: {wall_obj.location}")
+
             # Créer l'instance de bardage avec tous les paramètres
             bardage = ExteriorBardage(
                 wall_width=max(wall_obj.dimensions.x, wall_obj.dimensions.y),
@@ -2113,18 +2115,28 @@ class HOUSE_OT_generate_auto(Operator):
                 random_seed=42
             )
 
+            print(f"[Bardage] Instance créée: wall_width={bardage.wall_width:.2f}, wall_height={bardage.wall_height:.2f}")
+
             # ✅ CORRECTION : Créer le mesh des lames de bardage
             # On passe None pour forcer la création du mesh au lieu d'appliquer juste le matériau
             bardage_obj = bardage.generate_for_wall(None, collection)
 
+            print(f"[Bardage] Retour generate_for_wall: {bardage_obj}")
+
             # Positionner le bardage devant le mur
             if bardage_obj:
+                print(f"[Bardage] AVANT positionnement: location={bardage_obj.location}, dimensions={bardage_obj.dimensions}")
+                print(f"[Bardage] Vertices: {len(bardage_obj.data.vertices)}, Faces: {len(bardage_obj.data.polygons)}")
+
                 bardage_obj.location = wall_obj.location.copy()
                 # Décaler légèrement vers l'extérieur pour éviter z-fighting
                 bardage_obj.location.z += 0.001
                 bardage_obj["house_part"] = "bardage"
 
-            print(f"[House] ✅ Bardage {props.bardage_material_type} ({props.bardage_pose_type}) créé avec mesh de lames")
+                print(f"[Bardage] APRÈS positionnement: location={bardage_obj.location}")
+                print(f"[House] ✅ Bardage {props.bardage_material_type} ({props.bardage_pose_type}) créé avec mesh de lames")
+            else:
+                print(f"[House] ❌ ERREUR: bardage_obj est None!")
 
         except Exception as e:
             print(f"[House] ⚠️ Erreur application bardage sur {wall_obj.name}: {e}")

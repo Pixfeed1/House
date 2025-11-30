@@ -137,6 +137,8 @@ class ExteriorBardage:
     def create_cladding_mesh(self, collection):
         """Crée le mesh du bardage"""
 
+        print(f"[Bardage] create_cladding_mesh: pose_type={self.pose_type}, wall_width={self.wall_width}, wall_height={self.wall_height}")
+
         bm = bmesh.new()
         uv_layer = bm.loops.layers.uv.new("UVMap")
 
@@ -148,16 +150,24 @@ class ExteriorBardage:
 
         plank_step = self.plank_width + actual_gap
 
+        print(f"[Bardage] plank_step={plank_step:.3f}, actual_gap={actual_gap:.3f}")
+
         if self.pose_type in ['HORIZONTAL', 'CLIN']:
+            print(f"[Bardage] Création lames HORIZONTALES")
             self._create_horizontal_planks(bm, uv_layer, plank_step)
         elif self.pose_type in ['VERTICAL', 'CLAIRE_VOIE']:
+            print(f"[Bardage] Création lames VERTICALES")
             self._create_vertical_planks(bm, uv_layer, plank_step)
+
+        print(f"[Bardage] Bmesh créé: {len(bm.verts)} vertices, {len(bm.faces)} faces")
 
         # Créer le mesh
         mesh_name = f"Bardage_{self.material_type}_{self.pose_type}"
         mesh = bpy.data.meshes.new(mesh_name)
         bm.to_mesh(mesh)
         bm.free()
+
+        print(f"[Bardage] Mesh '{mesh_name}' créé: {len(mesh.vertices)} vertices, {len(mesh.polygons)} faces")
 
         # Chanfrein
         if self.bevel_width > 0:
@@ -166,6 +176,8 @@ class ExteriorBardage:
         # Créer l'objet
         obj = bpy.data.objects.new(mesh_name, mesh)
         collection.objects.link(obj)
+
+        print(f"[Bardage] Objet ajouté à collection '{collection.name}'")
 
         # Smooth shading
         for poly in mesh.polygons:
