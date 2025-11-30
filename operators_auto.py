@@ -2015,6 +2015,11 @@ class HOUSE_OT_generate_auto(Operator):
         """
         from .exterior_walls import ExteriorCrepi
 
+        # ✅ FIX: Protection dimensions nulles (évite division par zéro)
+        if wall_obj.dimensions.x < 0.1 or wall_obj.dimensions.z < 0.1:
+            print(f"[House] ⚠️ Mur {wall_obj.name} trop petit pour crépi (dimensions: {wall_obj.dimensions})")
+            return
+
         print(f"[House] Application crépi/enduit sur {wall_obj.name}")
 
         # Déterminer la couleur du crépi
@@ -2084,6 +2089,11 @@ class HOUSE_OT_generate_auto(Operator):
         """
         from .exterior_walls import ExteriorBardage
 
+        # ✅ FIX: Protection dimensions nulles (évite division par zéro)
+        if wall_obj.dimensions.x < 0.1 or wall_obj.dimensions.z < 0.1:
+            print(f"[House] ⚠️ Mur {wall_obj.name} trop petit pour bardage (dimensions: {wall_obj.dimensions})")
+            return
+
         print(f"[House] Application bardage bois sur {wall_obj.name}")
 
         # Déterminer la couleur de peinture si nécessaire
@@ -2150,6 +2160,11 @@ class HOUSE_OT_generate_auto(Operator):
         TODO: Implémenter Boolean pour découper les ouvertures
         """
         from .exterior_walls import ExteriorPierreParement
+
+        # ✅ FIX: Protection dimensions nulles (évite division par zéro)
+        if wall_obj.dimensions.x < 0.1 or wall_obj.dimensions.z < 0.1:
+            print(f"[House] ⚠️ Mur {wall_obj.name} trop petit pour pierre (dimensions: {wall_obj.dimensions})")
+            return
 
         print(f"[House] Application pierre de parement sur {wall_obj.name}")
 
@@ -2230,20 +2245,6 @@ class HOUSE_OT_generate_auto(Operator):
                 # Murs simples uniquement (pas les briques qui ont déjà leur matériau)
                 if props.wall_construction_type == 'SIMPLE' and len(obj.data.materials) == 0:
                     obj.data.materials.append(wall_mat)
-
-                # ✅ CRÉPI/ENDUIT EXTÉRIEUR - S'applique aux murs simples ET briques 3D
-                if hasattr(props, 'use_exterior_crepi') and props.use_exterior_crepi:
-                    self._apply_exterior_crepi(obj, props, collection)
-
-                # ✅ BARDAGE BOIS EXTÉRIEUR - S'applique aux murs simples ET briques 3D
-                # Note: Si crépi ET bardage sont activés, le bardage remplacera le crépi
-                if hasattr(props, 'use_exterior_bardage') and props.use_exterior_bardage:
-                    self._apply_exterior_bardage(obj, props, collection)
-
-                # ✅ PIERRE DE PAREMENT EXTÉRIEUR - S'applique aux murs simples ET briques 3D
-                # Note: Si plusieurs finitions activées, la dernière remplace les précédentes
-                if hasattr(props, 'use_exterior_pierre') and props.use_exterior_pierre:
-                    self._apply_exterior_pierre(obj, props, collection)
             elif part_type == "roof":
                 obj.data.materials.clear()
                 obj.data.materials.append(roof_mat)
@@ -2261,7 +2262,18 @@ class HOUSE_OT_generate_auto(Operator):
             elif part_type == "glass":
                 obj.data.materials.clear()
                 obj.data.materials.append(glass_mat)
-    
+
+        # ✅ FIX CRITIQUE: Appliquer finitions extérieures UNIQUEMENT sur l'objet "Walls" principal
+        # (évite d'appliquer sur les fenêtres et autres petits objets)
+        walls_obj = collection.objects.get("Walls")
+        if walls_obj and walls_obj.dimensions.x > 1.0:  # Vrai mur = plus de 1m
+            if hasattr(props, 'use_exterior_crepi') and props.use_exterior_crepi:
+                self._apply_exterior_crepi(walls_obj, props, collection)
+            if hasattr(props, 'use_exterior_bardage') and props.use_exterior_bardage:
+                self._apply_exterior_bardage(walls_obj, props, collection)
+            if hasattr(props, 'use_exterior_pierre') and props.use_exterior_pierre:
+                self._apply_exterior_pierre(walls_obj, props, collection)
+
     def _get_or_create_material(self, name, color):
         """Crée ou récupère un matériau"""
         if bpy.data.materials.get(name):
