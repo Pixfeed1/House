@@ -195,6 +195,12 @@ class HOUSE_OT_generate_auto(Operator):
             progress += 10
             wm.progress_update(progress)
 
+            # ✅ NOUVEAU: Porte d'entrée 3D avec 4 styles
+            print(f"[House] Porte d'entrée 3D (style: {props.door_style})...")
+            self._generate_front_door(context, props, house_collection)
+            progress += 5
+            wm.progress_update(progress)
+
             if props.include_garage:
                 print("[House] Garage...")
                 self._generate_garage(context, props, house_collection)
@@ -1996,7 +2002,57 @@ class HOUSE_OT_generate_auto(Operator):
         bm.faces.new([v2, v6, v7, v3])  # Droite
         bm.faces.new([v3, v7, v8, v4])  # Arrière
         bm.faces.new([v4, v8, v5, v1])  # Gauche
-    
+
+    def _generate_front_door(self, context, props, collection):
+        """Génère la porte d'entrée 3D avec 4 styles disponibles"""
+        from .doors import DoorGenerator
+
+        width = props.house_width
+        door_width = props.front_door_width
+        door_height = getattr(props, 'door_height', DOOR_HEIGHT)
+
+        # Position de la porte (centre du mur avant)
+        door_x = width / 2 - door_width / 2
+        door_y = 0  # Sur le mur avant
+        door_z = 0  # Au niveau du sol
+
+        # Récupérer les options de style
+        door_style = getattr(props, 'door_style', 'SOLID_WOOD')
+        wood_color = getattr(props, 'door_wood_color', 'DARK_OAK')
+        alu_color = getattr(props, 'door_alu_color', 'GRIS_ANTHRACITE')
+        alu_finish = getattr(props, 'door_alu_finish', 'SATINE')
+        glass_type = getattr(props, 'door_glass_type', 'CLEAR')
+
+        print(f"[House] Génération porte style: {door_style}")
+
+        try:
+            generator = DoorGenerator(
+                door_style=door_style,
+                door_width=door_width,
+                door_height=door_height,
+                wood_color=wood_color,
+                alu_color=alu_color,
+                alu_finish=alu_finish,
+                glass_type=glass_type,
+                add_frame=True,
+                add_handle=True,
+                add_hinges=True,
+                hinge_side='LEFT'
+            )
+
+            door_objects = generator.generate(
+                collection=collection,
+                location=(door_x, door_y, door_z),
+                rotation=0
+            )
+
+            print(f"[House] ✅ Porte {door_style} créée avec {len(door_objects)} éléments")
+
+        except Exception as e:
+            print(f"[House] ⚠️ Erreur création porte: {e}")
+            import traceback
+            traceback.print_exc()
+
     def _add_scene_lighting(self, context, props):
         """Ajoute l'éclairage"""
         width = props.house_width

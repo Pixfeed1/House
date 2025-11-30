@@ -290,37 +290,91 @@ class HouseGeneratorProperties(PropertyGroup):
     # ============================================================
     # PORTES
     # ============================================================
-    
+
     front_door_width: FloatProperty(
         name="Largeur porte entrée",
         description="Largeur de la porte d'entrée principale",
-        default=1.0,
-        min=0.8,
-        max=2.0,
+        default=0.90,
+        min=0.60,
+        max=1.20,
         unit='LENGTH',
         update=regenerate_house
     )
-    
+
     door_height: FloatProperty(
         name="Hauteur porte",
         description="Hauteur de la porte d'entrée",
-        default=2.1,
-        min=1.8,
-        max=2.5,
+        default=2.15,
+        min=1.80,
+        max=2.50,
         unit='LENGTH',
         update=regenerate_house
     )
-    
-    door_type: EnumProperty(
-        name="Type porte",
-        description="Type de porte d'entrée",
+
+    door_style: EnumProperty(
+        name="Style de porte",
+        description="Style de la porte d'entrée",
         items=[
-            ('SINGLE', "Simple", "Porte simple battant"),
-            ('DOUBLE', "Double", "Porte double battant"),
-            ('SLIDING', "Coulissante", "Porte coulissante"),
-            ('FRENCH', "Française", "Porte-fenêtre vitrée"),
+            ('SOLID_WOOD', "Pleine Bois", "Porte pleine en bois foncé traditionnel"),
+            ('PVC_WHITE', "PVC Blanc", "Porte PVC blanche moderne"),
+            ('WOOD_CENTER_GLASS', "Bois Vitrage Central", "Porte bois avec petit vitrage"),
+            ('ALU_LARGE_GLASS', "Alu Grand Vitrage", "Porte aluminium moderne grand vitrage"),
         ],
-        default='SINGLE',
+        default='SOLID_WOOD',
+        update=regenerate_house
+    )
+
+    door_wood_color: EnumProperty(
+        name="Teinte Bois",
+        description="Teinte du bois pour les portes bois",
+        items=[
+            ('DARK_OAK', "Chêne Foncé", "Brun foncé classique"),
+            ('MEDIUM_OAK', "Chêne Moyen", "Brun moyen"),
+            ('LIGHT_OAK', "Chêne Clair", "Brun clair"),
+            ('WALNUT', "Noyer", "Brun chocolat"),
+            ('MAHOGANY', "Acajou", "Brun rouge"),
+            ('WHITE_WASH', "Blanchi", "Bois blanchi"),
+        ],
+        default='DARK_OAK',
+        update=regenerate_house
+    )
+
+    door_alu_color: EnumProperty(
+        name="Couleur Alu",
+        description="Couleur de l'aluminium pour les portes alu",
+        items=[
+            ('GRIS_ALU', "Gris Alu", "Gris aluminium naturel"),
+            ('GRIS_ANTHRACITE', "Gris Anthracite", "RAL 7016"),
+            ('NOIR', "Noir", "Noir mat"),
+            ('BLANC', "Blanc", "Blanc RAL 9016"),
+            ('BRONZE', "Bronze", "Bronze anodisé"),
+        ],
+        default='GRIS_ANTHRACITE',
+        update=regenerate_house
+    )
+
+    door_alu_finish: EnumProperty(
+        name="Finition Alu",
+        description="Finition de l'aluminium",
+        items=[
+            ('BROSSE', "Brossé", "Métal brossé"),
+            ('SATINE', "Satiné", "Satiné mat"),
+            ('BRILLANT', "Brillant", "Laqué brillant"),
+            ('ANODISE', "Anodisé", "Anodisé mat"),
+        ],
+        default='SATINE',
+        update=regenerate_house
+    )
+
+    door_glass_type: EnumProperty(
+        name="Type Vitrage",
+        description="Type de vitrage pour les portes vitrées",
+        items=[
+            ('CLEAR', "Clair", "Vitrage transparent"),
+            ('FROSTED', "Dépoli", "Verre dépoli"),
+            ('TINTED', "Teinté", "Verre légèrement teinté"),
+        ],
+        default='CLEAR',
         update=regenerate_house
     )
 
