@@ -2010,17 +2010,19 @@ class HOUSE_OT_generate_auto(Operator):
     def _apply_exterior_crepi(self, wall_obj, props, collection):
         """Applique un crépi/enduit extérieur sur un mur
 
-        ⚠️ LIMITATION ACTUELLE: Le crépi couvre TOUT le mur (incluant fenêtres/portes)
-        TODO: Implémenter Boolean pour découper les ouvertures
+        ✅ CORRECTION: Protection contre dimensions nulles
         """
         from .exterior_walls import ExteriorCrepi
 
-        # ✅ FIX: Protection dimensions nulles (évite division par zéro)
-        if wall_obj.dimensions.x < 0.1 or wall_obj.dimensions.z < 0.1:
-            print(f"[House] ⚠️ Mur {wall_obj.name} trop petit pour crépi (dimensions: {wall_obj.dimensions})")
-            return
-
         print(f"[House] Application crépi/enduit sur {wall_obj.name}")
+
+        # ✅ PROTECTION: Vérifier dimensions valides
+        wall_width = max(wall_obj.dimensions.x, wall_obj.dimensions.y)
+        wall_height = wall_obj.dimensions.z
+
+        if wall_width < 0.1 or wall_height < 0.1:
+            print(f"[House] ⚠️ Skip crépi sur {wall_obj.name}: dimensions trop petites ({wall_width:.2f}x{wall_height:.2f})")
+            return
 
         # Déterminer la couleur du crépi
         custom_color = None
@@ -2052,29 +2054,20 @@ class HOUSE_OT_generate_auto(Operator):
                 random_seed=42
             )
 
-            # ✅ CORRECTION : Créer le mesh du crépi avec relief (comme script original)
-            # On passe None pour forcer la création du mesh au lieu d'appliquer juste le shader
             crepi_obj = crepi.generate_for_wall(
-                wall_obj=None,  # Créer nouveau mesh
-                wall_width=max(wall_obj.dimensions.x, wall_obj.dimensions.y),
-                wall_height=wall_obj.dimensions.z,
-                wall_thickness=0.02,  # Épaisseur du crépi
+                wall_obj=None,
+                wall_width=wall_width,
+                wall_height=wall_height,
+                wall_thickness=0.02,
                 orientation='front'
             )
 
-            # Positionner le crépi devant le mur
             if crepi_obj:
                 crepi_obj.location = wall_obj.location.copy()
-                # Décaler légèrement vers l'extérieur
                 crepi_obj.location.z += 0.001
                 crepi_obj["house_part"] = "crepi"
-
-                # ✅ CORRECTION: Ajouter le crépi à la collection
                 collection.objects.link(crepi_obj)
-
-                print(f"[House] ✅ Crépi {props.exterior_crepi_type} créé avec mesh relief 3D")
-            else:
-                print(f"[House] ❌ ERREUR: crepi_obj est None!")
+                print(f"[House] ✅ Crépi {props.exterior_crepi_type} créé")
 
         except Exception as e:
             print(f"[House] ⚠️ Erreur application crépi sur {wall_obj.name}: {e}")
@@ -2084,17 +2077,19 @@ class HOUSE_OT_generate_auto(Operator):
     def _apply_exterior_bardage(self, wall_obj, props, collection):
         """Applique un bardage bois extérieur sur un mur
 
-        ⚠️ LIMITATION ACTUELLE: Le bardage couvre TOUT le mur (incluant fenêtres/portes)
-        TODO: Implémenter Boolean pour découper les ouvertures
+        ✅ CORRECTION: Protection contre dimensions nulles
         """
         from .exterior_walls import ExteriorBardage
 
-        # ✅ FIX: Protection dimensions nulles (évite division par zéro)
-        if wall_obj.dimensions.x < 0.1 or wall_obj.dimensions.z < 0.1:
-            print(f"[House] ⚠️ Mur {wall_obj.name} trop petit pour bardage (dimensions: {wall_obj.dimensions})")
-            return
-
         print(f"[House] Application bardage bois sur {wall_obj.name}")
+
+        # ✅ PROTECTION: Vérifier dimensions valides
+        wall_width = max(wall_obj.dimensions.x, wall_obj.dimensions.y)
+        wall_height = wall_obj.dimensions.z
+
+        if wall_width < 0.1 or wall_height < 0.1:
+            print(f"[House] ⚠️ Skip bardage sur {wall_obj.name}: dimensions trop petites ({wall_width:.2f}x{wall_height:.2f})")
+            return
 
         # Déterminer la couleur de peinture si nécessaire
         custom_color = None
@@ -2102,18 +2097,15 @@ class HOUSE_OT_generate_auto(Operator):
             custom_color = tuple(props.bardage_paint_custom_color)
 
         try:
-            print(f"[Bardage] Dimensions mur: {wall_obj.dimensions}, location: {wall_obj.location}")
-
-            # Créer l'instance de bardage avec tous les paramètres
             bardage = ExteriorBardage(
-                wall_width=max(wall_obj.dimensions.x, wall_obj.dimensions.y),
-                wall_height=wall_obj.dimensions.z,
+                wall_width=wall_width,
+                wall_height=wall_height,
                 pose_type=props.bardage_pose_type,
                 material_type=props.bardage_material_type,
                 plank_width=props.bardage_plank_width,
-                plank_thickness=0.020,  # Valeur par défaut
+                plank_thickness=0.020,
                 gap=props.bardage_gap,
-                bevel_width=0.001,  # Valeur par défaut
+                bevel_width=0.001,
                 wood_species=props.bardage_wood_species,
                 weathering=props.bardage_weathering,
                 paint_color_preset=props.bardage_paint_preset,
@@ -2121,32 +2113,17 @@ class HOUSE_OT_generate_auto(Operator):
                 paint_wear=props.bardage_paint_wear,
                 burn_intensity=props.bardage_burn_intensity,
                 plank_variation=props.bardage_variation,
-                height_variation=0.001,  # Valeur par défaut
+                height_variation=0.001,
                 random_seed=42
             )
 
-            print(f"[Bardage] Instance créée: wall_width={bardage.wall_width:.2f}, wall_height={bardage.wall_height:.2f}")
-
-            # ✅ CORRECTION : Créer le mesh des lames de bardage
-            # On passe None pour forcer la création du mesh au lieu d'appliquer juste le matériau
             bardage_obj = bardage.generate_for_wall(None, collection)
 
-            print(f"[Bardage] Retour generate_for_wall: {bardage_obj}")
-
-            # Positionner le bardage devant le mur
             if bardage_obj:
-                print(f"[Bardage] AVANT positionnement: location={bardage_obj.location}, dimensions={bardage_obj.dimensions}")
-                print(f"[Bardage] Vertices: {len(bardage_obj.data.vertices)}, Faces: {len(bardage_obj.data.polygons)}")
-
                 bardage_obj.location = wall_obj.location.copy()
-                # Décaler légèrement vers l'extérieur pour éviter z-fighting
                 bardage_obj.location.z += 0.001
                 bardage_obj["house_part"] = "bardage"
-
-                print(f"[Bardage] APRÈS positionnement: location={bardage_obj.location}")
-                print(f"[House] ✅ Bardage {props.bardage_material_type} ({props.bardage_pose_type}) créé avec mesh de lames")
-            else:
-                print(f"[House] ❌ ERREUR: bardage_obj est None!")
+                print(f"[House] ✅ Bardage {props.bardage_material_type} créé")
 
         except Exception as e:
             print(f"[House] ⚠️ Erreur application bardage sur {wall_obj.name}: {e}")
@@ -2156,29 +2133,29 @@ class HOUSE_OT_generate_auto(Operator):
     def _apply_exterior_pierre(self, wall_obj, props, collection):
         """Applique un parement pierre extérieur sur un mur
 
-        ⚠️ LIMITATION ACTUELLE: Le parement couvre TOUT le mur (incluant fenêtres/portes)
-        TODO: Implémenter Boolean pour découper les ouvertures
+        ✅ CORRECTION: Protection contre dimensions nulles
         """
         from .exterior_walls import ExteriorPierreParement
 
-        # ✅ FIX: Protection dimensions nulles (évite division par zéro)
-        if wall_obj.dimensions.x < 0.1 or wall_obj.dimensions.z < 0.1:
-            print(f"[House] ⚠️ Mur {wall_obj.name} trop petit pour pierre (dimensions: {wall_obj.dimensions})")
-            return
-
         print(f"[House] Application pierre de parement sur {wall_obj.name}")
 
-        # Déterminer la couleur custom si nécessaire
+        # ✅ PROTECTION: Vérifier dimensions valides
+        wall_width = max(wall_obj.dimensions.x, wall_obj.dimensions.y)
+        wall_height = wall_obj.dimensions.z
+
+        if wall_width < 0.1 or wall_height < 0.1:
+            print(f"[House] ⚠️ Skip pierre sur {wall_obj.name}: dimensions trop petites ({wall_width:.2f}x{wall_height:.2f})")
+            return
+
         custom_color = None
         if props.pierre_stone_type == 'CUSTOM':
             custom_color = tuple(props.pierre_custom_color)
 
         try:
-            # Créer l'instance de pierre de parement avec tous les paramètres
             pierre = ExteriorPierreParement(
-                wall_width=max(wall_obj.dimensions.x, wall_obj.dimensions.y),
-                wall_height=wall_obj.dimensions.z,
-                wall_thickness=0.25,  # Épaisseur du parement
+                wall_width=wall_width,
+                wall_height=wall_height,
+                wall_thickness=0.25,
                 layout_type=props.pierre_layout_type,
                 stone_height=props.pierre_stone_height,
                 stone_width_min=props.pierre_stone_width_min,
@@ -2198,18 +2175,13 @@ class HOUSE_OT_generate_auto(Operator):
                 random_seed=42
             )
 
-            # ✅ Créer le mesh des pierres de parement
-            # On passe None pour forcer la création du mesh au lieu d'appliquer juste le matériau
             pierre_obj = pierre.generate_for_wall(None, collection)
 
-            # Positionner le parement devant le mur
             if pierre_obj:
                 pierre_obj.location = wall_obj.location.copy()
-                # Décaler légèrement vers l'extérieur pour éviter z-fighting
                 pierre_obj.location.z += 0.001
                 pierre_obj["house_part"] = "pierre_parement"
-
-            print(f"[House] ✅ Pierre de parement {props.pierre_stone_type} ({props.pierre_layout_type}) créée avec mesh de pierres")
+                print(f"[House] ✅ Pierre de parement créée")
 
         except Exception as e:
             print(f"[House] ⚠️ Erreur application pierre sur {wall_obj.name}: {e}")
@@ -2263,16 +2235,53 @@ class HOUSE_OT_generate_auto(Operator):
                 obj.data.materials.clear()
                 obj.data.materials.append(glass_mat)
 
-        # ✅ FIX CRITIQUE: Appliquer finitions extérieures UNIQUEMENT sur l'objet "Walls" principal
-        # (évite d'appliquer sur les fenêtres et autres petits objets)
-        walls_obj = collection.objects.get("Walls")
-        if walls_obj and walls_obj.dimensions.x > 1.0:  # Vrai mur = plus de 1m
-            if hasattr(props, 'use_exterior_crepi') and props.use_exterior_crepi:
-                self._apply_exterior_crepi(walls_obj, props, collection)
-            if hasattr(props, 'use_exterior_bardage') and props.use_exterior_bardage:
-                self._apply_exterior_bardage(walls_obj, props, collection)
-            if hasattr(props, 'use_exterior_pierre') and props.use_exterior_pierre:
-                self._apply_exterior_pierre(walls_obj, props, collection)
+        # =========================================================================
+        # ✅ CORRECTION: Identifier les VRAIS murs AVANT d'appliquer les finitions
+        # =========================================================================
+        real_wall_objects = []
+        for obj in collection.objects:
+            if obj.type != 'MESH':
+                continue
+
+            # Un "vrai mur" est:
+            # - Nommé "Walls" ou "BrickWall_*"
+            # - A house_part == "wall"
+            # - N'est PAS une fenêtre, porte, etc.
+            is_wall_by_name = obj.name.startswith("Walls") or obj.name.startswith("BrickWall_")
+            is_wall_by_part = obj.get("house_part") == "wall"
+
+            # Exclure explicitement les objets qui ne sont PAS des murs
+            excluded_keywords = ["Window", "Door", "Frame", "Glass", "Gutter", "Ceiling", "Floor", "Roof"]
+            is_excluded = any(kw in obj.name for kw in excluded_keywords)
+
+            if (is_wall_by_name or is_wall_by_part) and not is_excluded:
+                # Vérifier dimensions valides (au moins 1m de large et 1m de haut)
+                if max(obj.dimensions.x, obj.dimensions.y) > 1.0 and obj.dimensions.z > 1.0:
+                    real_wall_objects.append(obj)
+
+        if real_wall_objects:
+            print(f"[House] Murs détectés pour finitions extérieures: {[o.name for o in real_wall_objects]}")
+        else:
+            print(f"[House] ⚠️ Aucun mur valide trouvé pour finitions extérieures")
+
+        # =========================================================================
+        # ✅ CORRECTION: Appliquer finitions extérieures UNIQUEMENT sur vrais murs
+        # =========================================================================
+
+        # CRÉPI/ENDUIT EXTÉRIEUR
+        if hasattr(props, 'use_exterior_crepi') and props.use_exterior_crepi:
+            for wall_obj in real_wall_objects:
+                self._apply_exterior_crepi(wall_obj, props, collection)
+
+        # BARDAGE BOIS EXTÉRIEUR
+        if hasattr(props, 'use_exterior_bardage') and props.use_exterior_bardage:
+            for wall_obj in real_wall_objects:
+                self._apply_exterior_bardage(wall_obj, props, collection)
+
+        # PIERRE DE PAREMENT EXTÉRIEUR
+        if hasattr(props, 'use_exterior_pierre') and props.use_exterior_pierre:
+            for wall_obj in real_wall_objects:
+                self._apply_exterior_pierre(wall_obj, props, collection)
 
     def _get_or_create_material(self, name, color):
         """Crée ou récupère un matériau"""
