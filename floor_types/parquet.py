@@ -353,6 +353,9 @@ class ParquetMassif(FloorTypeBase):
     def _clip_to_floor(self, obj, width, length, height):
         """Coupe le parquet aux dimensions exactes du sol"""
 
+        print(f"[Parquet] _clip_to_floor: width={width:.2f}, length={length:.2f}, height={height:.3f}")
+        print(f"[Parquet] Mesh AVANT Boolean: {len(obj.data.vertices)} vertices, {len(obj.data.polygons)} faces")
+
         # Créer un cube de clipping
         bpy.ops.mesh.primitive_cube_add(size=1)
         cutter = bpy.context.active_object
@@ -361,9 +364,13 @@ class ParquetMassif(FloorTypeBase):
         cutter.location = (width / 2, length / 2, height + self.THICKNESS / 2)
         bpy.ops.object.transform_apply(scale=True, location=True)
 
+        print(f"[Parquet] Cutter: location={cutter.location}, dimensions={cutter.dimensions}")
+
         # Lier l'objet parquet à la scène pour appliquer le Boolean
         bpy.context.collection.objects.link(obj)
         bpy.context.view_layer.objects.active = obj
+
+        print(f"[Parquet] Parquet obj: location={obj.location}, dimensions={obj.dimensions}")
 
         # Appliquer Boolean (EXACT solver pour meilleure précision)
         bool_mod = obj.modifiers.new("Boolean", 'BOOLEAN')
@@ -371,15 +378,26 @@ class ParquetMassif(FloorTypeBase):
         bool_mod.object = cutter
         bool_mod.solver = 'EXACT'  # Plus précis que FAST, évite l'effet "tétris"
 
+        print(f"[Parquet] Boolean modifier créé: operation={bool_mod.operation}, solver={bool_mod.solver}")
+
         # Appliquer le modificateur
         bpy.context.view_layer.update()
-        bpy.ops.object.modifier_apply(modifier="Boolean")
+
+        try:
+            bpy.ops.object.modifier_apply(modifier="Boolean")
+            print(f"[Parquet] Boolean appliqué avec succès")
+        except Exception as e:
+            print(f"[Parquet] ❌ ERREUR Boolean: {e}")
+
+        print(f"[Parquet] Mesh APRÈS Boolean: {len(obj.data.vertices)} vertices, {len(obj.data.polygons)} faces")
 
         # Supprimer le cutter
         bpy.data.objects.remove(cutter)
 
         # Retirer de la scène (sera réajouté par le système principal)
         bpy.context.collection.objects.unlink(obj)
+
+        print(f"[Parquet] _clip_to_floor terminé")
 
     def _apply_material(self, obj):
         """Matériau bois selon l'essence choisie (OAK, WALNUT, MAPLE, CHERRY, ASH)"""
