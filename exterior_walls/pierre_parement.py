@@ -7,6 +7,9 @@
 #  Types de pose : Assisé régulier, Irrégulier, Opus incertum, Moellons, Pierre sèche
 #  Types de pierre : Calcaire, Granit, Grès, Ardoise, Meulière, Pierre de Taille
 #
+#  ✅ FIX: Axes Y/Z déjà corrects
+#  ✅ NEW: Support des ouvertures (fenêtres/portes) - génération autour des trous
+#
 # ##### END GPL LICENSE BLOCK #####
 
 import bpy
@@ -39,7 +42,9 @@ class ExteriorPierreParement:
                  weathering=0.2,
                  moss=0.0,
                  dirt=0.1,
-                 random_seed=42):
+                 random_seed=42,
+                 # ✅ NOUVEAU: Ouvertures (fenêtres/portes)
+                 openings=None):
         """
         Initialise le générateur de pierre de parement.
 
@@ -64,6 +69,7 @@ class ExteriorPierreParement:
             moss: Mousse et lichen
             dirt: Salissures
             random_seed: Seed aléatoire
+            openings: Liste des ouvertures (fenêtres/portes) à éviter
         """
         self.wall_width = wall_width
         self.wall_height = wall_height
@@ -86,7 +92,135 @@ class ExteriorPierreParement:
         self.dirt = dirt
         self.random_seed = random_seed
 
-        print(f"[ExteriorPierreParement] Type: {layout_type}, Pierre: {stone_type}")
+        # ✅ NOUVEAU: Stocker et normaliser les ouvertures
+        self.openings = self._normalize_openings(openings or [])
+
+        print(f"[ExteriorPierreParement] Type: {layout_type}, Pierre: {stone_type}, Ouvertures: {len(self.openings)}")
+
+    def _normalize_openings(self, openings):
+        """
+        Normalise les ouvertures en coordonnées locales du mur.
+        
+        Les ouvertures arrivent avec des coordonnées globales.
+        On les convertit en coordonnées locales (x_local, z, width_local, height).
+        """
+        normalized = []
+        
+        for op in openings:
+            wall = op.get('wall', '')
+            
+            if wall in ['front', 'back']:
+                # Coordonnées directes
+                normalized.append({
+                    'x': op.get('x', 0),
+                    'z': op.get('z', 0),
+                    'width': op.get('width', 0),
+                    'height': op.get('height', 0),
+                    'type': op.get('type', 'window')
+                })
+            elif wall in ['left', 'right']:
+                # Pour les murs latéraux, y devient x_local et depth devient width_local
+                normalized.append({
+                    'x': op.get('y', 0),
+                    'z': op.get('z', 0),
+                    'width': op.get('depth', op.get('width', 0)),
+                    'height': op.get('height', 0),
+                    'type': op.get('type', 'window')
+                })
+        
+        return normalized
+
+    # =================================================================
+    # DÉTECTION D'INTERSECTION AVEC LES OUVERTURES
+    # =================================================================
+
+    def _stone_intersects_opening(self, stone_x, stone_y, stone_width, stone_height):
+        """
+        Vérifie si une pierre intersecte une ouverture.
+        
+        Args:
+            stone_x: Position X de la pierre
+            stone_y: Position Y (Z dans Blender) de la pierre
+            stone_width: Largeur de la pierre
+            stone_height: Hauteur de la pierre
+            
+        Returns:
+            True si la pierre intersecte une ouverture
+        """
+        for op in self.openings:
+            # Bornes de l'ouverture
+            op_left = op['x']
+            op_right = op['x'] + op['width']
+            op_bottom = op['z']
+            op_top = op['z'] + op['height']
+            
+            # Bornes de la pierre
+            stone_left = stone_x
+            stone_right = stone_x + stone_width
+            stone_bottom = stone_y
+            stone_top = stone_y + stone_height
+            
+            # Vérifier l'intersection (rectangles)
+            if (stone_left < op_right and stone_right > op_left and
+                stone_bottom < op_top and stone_top > op_bottom):
+                return True
+        
+        return False
+
+    def _get_segments_around_openings_at_y(self, y_pos, stone_height):
+        """
+        Retourne les segments X disponibles pour une rangée à la position Y donnée.
+        
+        Args:
+            y_pos: Position Y (Z) de la rangée
+            stone_height: Hauteur des pierres de cette rangée
+            
+        Returns:
+            Liste de tuples (x_start, x_end) pour les segments disponibles
+        """
+        # Trouver les ouvertures qui intersectent cette rangée verticalement
+        intersecting = []
+        for op in self.openings:
+            op_bottom = op['z']
+            op_top = op['z'] + op['height']
+            
+            # Intersection verticale ?
+            if y_pos < op_top and (y_pos + stone_height) > op_bottom:
+                intersecting.append(op)
+        
+        if not intersecting:
+            return [(0, self.wall_width)]
+        
+        # Collecter les "trous" horizontaux
+        holes = []
+        for op in intersecting:
+            holes.append((op['x'], op['x'] + op['width']))
+        
+        # Trier par position X
+        holes.sort(key=lambda h: h[0])
+        
+        # Fusionner les trous qui se chevauchent
+        merged_holes = []
+        for hole in holes:
+            if merged_holes and hole[0] <= merged_holes[-1][1]:
+                merged_holes[-1] = (merged_holes[-1][0], max(merged_holes[-1][1], hole[1]))
+            else:
+                merged_holes.append(hole)
+        
+        # Générer les segments entre les trous
+        segments = []
+        current_x = 0
+        
+        for hole_start, hole_end in merged_holes:
+            if current_x < hole_start:
+                segments.append((current_x, hole_start))
+            current_x = hole_end
+        
+        # Segment final
+        if current_x < self.wall_width:
+            segments.append((current_x, self.wall_width))
+        
+        return segments
 
     def generate_for_wall(self, wall_obj, collection):
         """
@@ -115,7 +249,7 @@ class ExteriorPierreParement:
             return wall_obj
 
         # Sinon, créer le mesh de pierre de parement
-        print(f"[ExteriorPierreParement] Création mesh pierre")
+        print(f"[ExteriorPierreParement] Création mesh pierre avec {len(self.openings)} ouvertures")
         obj = self.create_stone_wall_mesh(collection)
 
         mat = self.create_stone_material()
@@ -177,31 +311,37 @@ class ExteriorPierreParement:
             actual_height = min(self.stone_height, self.wall_height - y)
 
             # Décalage alterné
-            offset = 0 if course % 2 == 0 else random.uniform(0.1, 0.3) * self.stone_width_max
+            base_offset = 0 if course % 2 == 0 else random.uniform(0.1, 0.3) * self.stone_width_max
 
-            x = -offset
-            while x < self.wall_width:
-                stone_width = random.uniform(self.stone_width_min, self.stone_width_max)
+            # ✅ NOUVEAU: Obtenir les segments disponibles pour cette rangée
+            segments = self._get_segments_around_openings_at_y(y, actual_height)
+            
+            for seg_start, seg_end in segments:
+                # Commencer avec le décalage (ajusté au segment)
+                x = seg_start - (base_offset % (self.stone_width_max + self.joint_width))
+                
+                while x < seg_end:
+                    stone_width = random.uniform(self.stone_width_min, self.stone_width_max)
 
-                # Ajuster la dernière pierre
-                if x + stone_width > self.wall_width:
-                    stone_width = self.wall_width - x
+                    # Ajuster aux limites du segment
+                    if x < seg_start:
+                        # Découper le début
+                        stone_width -= (seg_start - x)
+                        x = seg_start
+                    
+                    if x + stone_width > seg_end:
+                        stone_width = seg_end - x
 
-                if stone_width > 0.05 and x + stone_width > 0:
-                    start_x = max(0, x)
-                    end_x = min(self.wall_width, x + stone_width)
-                    actual_width = end_x - start_x
-
-                    if actual_width > 0.05:
+                    if stone_width > 0.05:
                         self.create_stone(
                             bm, uv_layer,
-                            start_x, y,
-                            actual_width, actual_height,
+                            x, y,
+                            stone_width, actual_height,
                             stone_index
                         )
                         stone_index += 1
 
-                x += stone_width + self.joint_width
+                    x += stone_width + self.joint_width
 
     def create_irregular_courses(self, bm, uv_layer):
         """Assisé irrégulier - hauteurs variables"""
@@ -215,33 +355,37 @@ class ExteriorPierreParement:
             course_height = self.stone_height * random.uniform(0.7, 1.3)
             actual_height = min(course_height, self.wall_height - y)
 
-            offset = 0 if course % 2 == 0 else random.uniform(0.1, 0.4) * self.stone_width_max
+            base_offset = 0 if course % 2 == 0 else random.uniform(0.1, 0.4) * self.stone_width_max
 
-            x = -offset
-            while x < self.wall_width:
-                stone_width = random.uniform(self.stone_width_min, self.stone_width_max)
+            # ✅ NOUVEAU: Obtenir les segments disponibles pour cette rangée
+            segments = self._get_segments_around_openings_at_y(y, actual_height)
+            
+            for seg_start, seg_end in segments:
+                x = seg_start - (base_offset % (self.stone_width_max + self.joint_width))
+                
+                while x < seg_end:
+                    stone_width = random.uniform(self.stone_width_min, self.stone_width_max)
 
-                if x + stone_width > self.wall_width:
-                    stone_width = self.wall_width - x
-
-                if stone_width > 0.05 and x + stone_width > 0:
-                    start_x = max(0, x)
-                    end_x = min(self.wall_width, x + stone_width)
-                    actual_width = end_x - start_x
+                    if x < seg_start:
+                        stone_width -= (seg_start - x)
+                        x = seg_start
+                    
+                    if x + stone_width > seg_end:
+                        stone_width = seg_end - x
 
                     # Variation de hauteur par pierre
                     h_var = actual_height * random.uniform(0.9, 1.0)
 
-                    if actual_width > 0.05:
+                    if stone_width > 0.05:
                         self.create_stone(
                             bm, uv_layer,
-                            start_x, y,
-                            actual_width, h_var,
+                            x, y,
+                            stone_width, h_var,
                             stone_index
                         )
                         stone_index += 1
 
-                x += stone_width + self.joint_width
+                    x += stone_width + self.joint_width
 
             y += course_height + self.joint_width
             course += 1
@@ -266,7 +410,7 @@ class ExteriorPierreParement:
                 width = random.uniform(self.stone_width_min * 0.6, self.stone_width_max * 0.8)
                 height = random.uniform(self.stone_height * 0.5, self.stone_height * 1.2)
 
-                # Vérifier les limites
+                # Vérifier les limites du mur
                 if (base_x >= -width * 0.5 and base_x <= self.wall_width + width * 0.5 and
                     base_y >= -height * 0.5 and base_y <= self.wall_height + height * 0.5):
 
@@ -279,15 +423,17 @@ class ExteriorPierreParement:
                     actual_width = end_x - start_x
                     actual_height = end_y - start_y
 
+                    # ✅ NOUVEAU: Vérifier si la pierre intersecte une ouverture
                     if actual_width > 0.04 and actual_height > 0.04:
-                        self.create_stone(
-                            bm, uv_layer,
-                            start_x, start_y,
-                            actual_width, actual_height,
-                            stone_index,
-                            irregular=True
-                        )
-                        stone_index += 1
+                        if not self._stone_intersects_opening(start_x, start_y, actual_width, actual_height):
+                            self.create_stone(
+                                bm, uv_layer,
+                                start_x, start_y,
+                                actual_width, actual_height,
+                                stone_index,
+                                irregular=True
+                            )
+                            stone_index += 1
 
     def create_moellons(self, bm, uv_layer):
         """Moellons - pierres grossièrement équarries"""
@@ -301,25 +447,30 @@ class ExteriorPierreParement:
             course_height = self.stone_height * random.uniform(0.8, 1.4)
             actual_height = min(course_height, self.wall_height - y)
 
-            x = 0
-            while x < self.wall_width:
-                stone_width = random.uniform(self.stone_width_min * 0.8, self.stone_width_max * 1.2)
+            # ✅ NOUVEAU: Obtenir les segments disponibles pour cette rangée
+            segments = self._get_segments_around_openings_at_y(y, actual_height)
+            
+            for seg_start, seg_end in segments:
+                x = seg_start
+                
+                while x < seg_end:
+                    stone_width = random.uniform(self.stone_width_min * 0.8, self.stone_width_max * 1.2)
 
-                if x + stone_width > self.wall_width:
-                    stone_width = self.wall_width - x
+                    if x + stone_width > seg_end:
+                        stone_width = seg_end - x
 
-                if stone_width > 0.05:
-                    self.create_stone(
-                        bm, uv_layer,
-                        x, y,
-                        stone_width, actual_height,
-                        stone_index,
-                        irregular=True,
-                        rough=True
-                    )
-                    stone_index += 1
+                    if stone_width > 0.05:
+                        self.create_stone(
+                            bm, uv_layer,
+                            x, y,
+                            stone_width, actual_height,
+                            stone_index,
+                            irregular=True,
+                            rough=True
+                        )
+                        stone_index += 1
 
-                x += stone_width + self.joint_width * random.uniform(0.8, 1.5)
+                    x += stone_width + self.joint_width * random.uniform(0.8, 1.5)
 
             y += course_height + self.joint_width * random.uniform(0.8, 1.5)
             course += 1
@@ -358,6 +509,7 @@ class ExteriorPierreParement:
             thickness *= random.uniform(0.85, 1.15)
 
         # Vertices de la pierre (face avant)
+        # Note: y dans les paramètres = z dans Blender (hauteur)
         verts = [
             # Face avant
             Vector((x + offsets[0][0], z_offset, y + offsets[0][1])),
@@ -427,8 +579,19 @@ class ExteriorPierreParement:
         principled = nodes.new('ShaderNodeBsdfPrincipled')
         principled.location = (500, 0)
         principled.inputs['Roughness'].default_value = self.get_base_roughness()
-        principled.inputs['IOR'].default_value = 1.5
-        principled.inputs['Specular IOR Level'].default_value = 0.35
+        
+        try:
+            principled.inputs['IOR'].default_value = 1.5
+        except KeyError:
+            pass
+            
+        try:
+            principled.inputs['Specular IOR Level'].default_value = 0.35
+        except KeyError:
+            try:
+                principled.inputs['Specular'].default_value = 0.35
+            except KeyError:
+                pass
 
         links.new(principled.outputs['BSDF'], output.inputs['Surface'])
 
