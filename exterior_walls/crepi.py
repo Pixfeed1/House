@@ -95,8 +95,9 @@ class ExteriorCrepi:
         self.aging = aging
         self.random_seed = random_seed
 
-        # ✅ NOUVEAU: Stocker et normaliser les ouvertures
-        self.openings = self._normalize_openings(openings or [])
+        # ✅ NOUVEAU: Stocker les ouvertures BRUTES (normalisées dans generate_for_wall)
+        self._raw_openings = openings or []
+        self.openings = []  # Sera rempli dans generate_for_wall
 
         # Déterminer la couleur finale
         if color_preset == 'CUSTOM' and custom_color:
@@ -110,30 +111,66 @@ class ExteriorCrepi:
         """
         Normalise les ouvertures en coordonnées locales du mur.
         
-        Les ouvertures arrivent avec des coordonnées globales.
-        On les convertit en coordonnées locales (x_local, z, width_local, height).
+        Les ouvertures arrivent avec des coordonnées globales (world).
+        On les convertit en coordonnées locales du mesh de crépi.
+        
+        ✅ IMPORTANT: Le crépi est créé avec des coordonnées locales (0 → wall_width),
+        puis l'objet est positionné et rotaté. Les coordonnées des ouvertures doivent
+        tenir compte de ces transformations :
+        
+        - FRONT: rotation 0° → coordonnées directes
+        - BACK: rotation 180° → X inversé
+        - LEFT: rotation 90° → Y devient X (direct)
+        - RIGHT: rotation -90° → Y devient X, inversé
         """
         normalized = []
         
+        # Récupérer wall_width depuis l'instance (sera défini dans generate_for_wall)
+        wall_width = getattr(self, 'wall_width', 10.0)
+        
         for op in openings:
             wall = op.get('wall', '')
+            op_width = op.get('width', 0)
+            op_height = op.get('height', 0)
+            op_depth = op.get('depth', op_width)
             
-            if wall in ['front', 'back']:
-                # Coordonnées directes
+            if wall == 'front':
                 normalized.append({
                     'x': op.get('x', 0),
                     'z': op.get('z', 0),
-                    'width': op.get('width', 0),
-                    'height': op.get('height', 0),
+                    'width': op_width,
+                    'height': op_height,
                     'type': op.get('type', 'window')
                 })
-            elif wall in ['left', 'right']:
-                # Pour les murs latéraux, y devient x_local et depth devient width_local
+            elif wall == 'back':
+                # Rotation 180° → X inversé
+                x_world = op.get('x', 0)
+                x_local = wall_width - x_world - op_width
+                normalized.append({
+                    'x': x_local,
+                    'z': op.get('z', 0),
+                    'width': op_width,
+                    'height': op_height,
+                    'type': op.get('type', 'window')
+                })
+            elif wall == 'left':
+                # Rotation 90° → Y devient X (direct)
                 normalized.append({
                     'x': op.get('y', 0),
                     'z': op.get('z', 0),
-                    'width': op.get('depth', op.get('width', 0)),
-                    'height': op.get('height', 0),
+                    'width': op_depth,
+                    'height': op_height,
+                    'type': op.get('type', 'window')
+                })
+            elif wall == 'right':
+                # Rotation -90° → Y devient X, inversé
+                y_world = op.get('y', 0)
+                x_local = wall_width - y_world - op_depth
+                normalized.append({
+                    'x': x_local,
+                    'z': op.get('z', 0),
+                    'width': op_depth,
+                    'height': op_height,
                     'type': op.get('type', 'window')
                 })
         
@@ -158,6 +195,9 @@ class ExteriorCrepi:
         # Stocker les dimensions pour utilisation dans les méthodes
         self.wall_width = wall_width
         self.wall_height = wall_height
+
+        # ✅ Normaliser les ouvertures maintenant qu'on connaît wall_width
+        self.openings = self._normalize_openings(self._raw_openings)
 
         # Si le mur existe déjà (briques 3D), on applique juste le matériau
         if wall_obj and wall_obj.data:
