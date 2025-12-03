@@ -112,33 +112,68 @@ class ExteriorBardage:
         """
         Normalise les ouvertures en coordonnées locales du mur.
         
-        Les ouvertures arrivent avec des coordonnées globales.
-        On les convertit en coordonnées locales (x_local, z, width_local, height).
+        Les ouvertures arrivent avec des coordonnées globales (world).
+        On les convertit en coordonnées locales du mesh de bardage.
         
-        Pour front/back: x et width sont directement utilisables
-        Pour left/right: y devient x_local, depth devient width_local
+        ✅ IMPORTANT: Le bardage est créé avec des coordonnées locales (0 → wall_width),
+        puis l'objet est positionné et rotaté. Les coordonnées des ouvertures doivent
+        tenir compte de ces transformations :
+        
+        - FRONT: rotation 0° → coordonnées directes
+        - BACK: rotation 180° → X inversé (x_local = wall_width - x - width)
+        - LEFT: rotation 90° → Y devient X (direct)
+        - RIGHT: rotation -90° → Y devient X, inversé (x_local = wall_width - y - depth)
         """
         normalized = []
         
         for op in openings:
             wall = op.get('wall', '')
+            op_width = op.get('width', 0)
+            op_height = op.get('height', 0)
+            op_depth = op.get('depth', op_width)
             
-            if wall in ['front', 'back']:
-                # Coordonnées directes
+            if wall == 'front':
+                # Pas de rotation → coordonnées directes
                 normalized.append({
                     'x': op.get('x', 0),
                     'z': op.get('z', 0),
-                    'width': op.get('width', 0),
-                    'height': op.get('height', 0),
+                    'width': op_width,
+                    'height': op_height,
                     'type': op.get('type', 'window')
                 })
-            elif wall in ['left', 'right']:
-                # Pour les murs latéraux, y devient x_local et depth devient width_local
+            elif wall == 'back':
+                # Rotation 180° → X inversé
+                # x_local = wall_width - x_world - opening_width
+                x_world = op.get('x', 0)
+                x_local = self.wall_width - x_world - op_width
+                normalized.append({
+                    'x': x_local,
+                    'z': op.get('z', 0),
+                    'width': op_width,
+                    'height': op_height,
+                    'type': op.get('type', 'window')
+                })
+            elif wall == 'left':
+                # Rotation 90° → Y devient X (direct)
+                # Pour LEFT, wall_width = length de la maison
                 normalized.append({
                     'x': op.get('y', 0),
                     'z': op.get('z', 0),
-                    'width': op.get('depth', op.get('width', 0)),
-                    'height': op.get('height', 0),
+                    'width': op_depth,  # depth de l'ouverture = largeur le long du mur
+                    'height': op_height,
+                    'type': op.get('type', 'window')
+                })
+            elif wall == 'right':
+                # Rotation -90° → Y devient X, inversé
+                # x_local = wall_width - y_world - opening_depth
+                # Pour RIGHT, wall_width = length de la maison
+                y_world = op.get('y', 0)
+                x_local = self.wall_width - y_world - op_depth
+                normalized.append({
+                    'x': x_local,
+                    'z': op.get('z', 0),
+                    'width': op_depth,
+                    'height': op_height,
                     'type': op.get('type', 'window')
                 })
         
