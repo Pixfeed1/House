@@ -2116,13 +2116,13 @@ class HOUSE_OT_generate_auto(Operator):
             # Créer 4 façades
             facades = [
                 {'name': 'front', 'width': width, 'height': height,
-                 'location': (width/2, 0, height/2), 'rotation': (math.pi/2, 0, 0)},
+                 'location': (0, -0.01, 0), 'rotation': (0, 0, 0)},
                 {'name': 'back', 'width': width, 'height': height,
-                 'location': (width/2, length, height/2), 'rotation': (math.pi/2, 0, math.pi)},
+                 'location': (width, length + 0.01, 0), 'rotation': (0, 0, math.pi)},
                 {'name': 'left', 'width': length, 'height': height,
-                 'location': (0, length/2, height/2), 'rotation': (math.pi/2, 0, -math.pi/2)},
+                 'location': (-0.01, 0, 0), 'rotation': (0, 0, math.pi/2)},
                 {'name': 'right', 'width': length, 'height': height,
-                 'location': (width, length/2, height/2), 'rotation': (math.pi/2, 0, math.pi/2)},
+                 'location': (width + 0.01, length, 0), 'rotation': (0, 0, -math.pi/2)},
             ]
 
             for facade in facades:
