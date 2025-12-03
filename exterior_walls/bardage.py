@@ -111,20 +111,11 @@ class ExteriorBardage:
     def _normalize_openings(self, openings):
         """
         Normalise les ouvertures en coordonnées locales du mur.
-        
-        Les ouvertures arrivent avec des coordonnées globales (world).
-        On les convertit en coordonnées locales du mesh de bardage.
-        
-        ✅ IMPORTANT: Le bardage est créé avec des coordonnées locales (0 → wall_width),
-        puis l'objet est positionné et rotaté. Les coordonnées des ouvertures doivent
-        tenir compte de ces transformations :
-        
-        - FRONT: rotation 0° → coordonnées directes
-        - BACK: rotation 180° → X inversé (x_local = wall_width - x - width)
-        - LEFT: rotation 90° → Y devient X (direct)
-        - RIGHT: rotation -90° → Y devient X, inversé (x_local = wall_width - y - depth)
         """
         normalized = []
+        
+        print(f"[DEBUG BARDAGE] _normalize_openings appelé avec {len(openings)} ouvertures")
+        print(f"[DEBUG BARDAGE] self.wall_width = {self.wall_width}")
         
         for op in openings:
             wall = op.get('wall', '')
@@ -132,51 +123,58 @@ class ExteriorBardage:
             op_height = op.get('height', 0)
             op_depth = op.get('depth', op_width)
             
+            print(f"[DEBUG BARDAGE] Ouverture brute: wall={wall}, x={op.get('x')}, y={op.get('y')}, z={op.get('z')}, width={op_width}, height={op_height}, depth={op_depth}")
+            
             if wall == 'front':
                 # Pas de rotation → coordonnées directes
-                normalized.append({
+                result = {
                     'x': op.get('x', 0),
                     'z': op.get('z', 0),
                     'width': op_width,
                     'height': op_height,
                     'type': op.get('type', 'window')
-                })
+                }
+                print(f"[DEBUG BARDAGE] FRONT → x_local={result['x']}, width={result['width']}")
+                normalized.append(result)
             elif wall == 'back':
                 # Rotation 180° → X inversé
-                # x_local = wall_width - x_world - opening_width
                 x_world = op.get('x', 0)
                 x_local = self.wall_width - x_world - op_width
-                normalized.append({
+                result = {
                     'x': x_local,
                     'z': op.get('z', 0),
                     'width': op_width,
                     'height': op_height,
                     'type': op.get('type', 'window')
-                })
+                }
+                print(f"[DEBUG BARDAGE] BACK → x_world={x_world}, x_local={x_local} (wall_width={self.wall_width} - x_world - width)")
+                normalized.append(result)
             elif wall == 'left':
                 # Rotation 90° → Y devient X (direct)
-                # Pour LEFT, wall_width = length de la maison
-                normalized.append({
+                result = {
                     'x': op.get('y', 0),
                     'z': op.get('z', 0),
                     'width': op_depth,  # depth de l'ouverture = largeur le long du mur
                     'height': op_height,
                     'type': op.get('type', 'window')
-                })
+                }
+                print(f"[DEBUG BARDAGE] LEFT → y_world={op.get('y')}, x_local={result['x']}, width={result['width']}")
+                normalized.append(result)
             elif wall == 'right':
                 # Rotation -90° → Y devient X, inversé
-                # x_local = wall_width - y_world - opening_depth
-                # Pour RIGHT, wall_width = length de la maison
                 y_world = op.get('y', 0)
                 x_local = self.wall_width - y_world - op_depth
-                normalized.append({
+                result = {
                     'x': x_local,
                     'z': op.get('z', 0),
                     'width': op_depth,
                     'height': op_height,
                     'type': op.get('type', 'window')
-                })
+                }
+                print(f"[DEBUG BARDAGE] RIGHT → y_world={y_world}, x_local={x_local} (wall_width={self.wall_width} - y - depth)")
+                normalized.append(result)
         
+        print(f"[DEBUG BARDAGE] Total ouvertures normalisées: {len(normalized)}")
         return normalized
 
     def generate_for_wall(self, wall_obj, collection):
@@ -260,13 +258,6 @@ class ExteriorBardage:
     def _get_openings_at_z(self, z_pos, plank_height):
         """
         Retourne les ouvertures qui intersectent une position Z donnée.
-        
-        Args:
-            z_pos: Position Z centrale de la lame
-            plank_height: Hauteur de la lame
-            
-        Returns:
-            Liste des ouvertures qui intersectent cette rangée
         """
         intersecting = []
         
@@ -280,6 +271,11 @@ class ExteriorBardage:
             # Vérifier l'intersection verticale
             if plank_bottom < op_top and plank_top > op_bottom:
                 intersecting.append(op)
+        
+        if intersecting and z_pos < 3:  # Limiter les logs aux premières rangées
+            print(f"[DEBUG BARDAGE] z_pos={z_pos:.2f}: {len(intersecting)} ouvertures intersectent")
+            for op in intersecting:
+                print(f"[DEBUG BARDAGE]   → x={op['x']:.2f}, z={op['z']:.2f}, w={op['width']:.2f}, h={op['height']:.2f}")
         
         return intersecting
 
@@ -312,15 +308,6 @@ class ExteriorBardage:
     def _get_segments_around_openings(self, start, end, openings, axis='x'):
         """
         Calcule les segments de lame à créer en évitant les ouvertures.
-        
-        Args:
-            start: Position de début de la lame
-            end: Position de fin de la lame
-            openings: Liste des ouvertures qui intersectent cette lame
-            axis: 'x' pour lames horizontales, 'z' pour lames verticales
-            
-        Returns:
-            Liste de tuples (start, end) pour chaque segment à créer
         """
         if not openings:
             return [(start, end)]
@@ -370,6 +357,12 @@ class ExteriorBardage:
             seg_end = end
             if seg_end > seg_start + 0.02:  # Minimum 2cm
                 segments.append((seg_start, seg_end))
+        
+        # Debug log (seulement si des trous existent)
+        if merged_holes:
+            print(f"[DEBUG BARDAGE] _get_segments: range=[{start:.2f}, {end:.2f}]")
+            print(f"[DEBUG BARDAGE]   holes: {[(f'{h[0]:.2f}', f'{h[1]:.2f}') for h in merged_holes]}")
+            print(f"[DEBUG BARDAGE]   segments: {[(f'{s[0]:.2f}', f'{s[1]:.2f}') for s in segments]}")
         
         return segments
 
