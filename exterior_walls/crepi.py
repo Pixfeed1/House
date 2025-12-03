@@ -8,9 +8,7 @@ Compatible avec murs simples et briques 3D.
 Gère automatiquement les ouvertures (portes et fenêtres).
 
 ✅ FIX: Correction axes Y/Z pour orientation verticale correcte
-- X = largeur (gauche/droite)
-- Y = profondeur (avant/arrière) 
-- Z = hauteur (haut/bas)
+✅ NEW: Support des ouvertures (fenêtres/portes) - génération autour des trous
 
 Blender 4.2+
 """
@@ -63,7 +61,9 @@ class ExteriorCrepi:
                  moss=0.0,
                  cracks=0.05,
                  aging=0.1,
-                 random_seed=42):
+                 random_seed=42,
+                 # ✅ NOUVEAU: Ouvertures (fenêtres/portes)
+                 openings=None):
         """
         Initialise le générateur de crépi.
 
@@ -80,6 +80,7 @@ class ExteriorCrepi:
             cracks: Fissures (0.0 - 1.0)
             aging: Vieillissement (0.0 - 1.0)
             random_seed: Seed pour variation aléatoire
+            openings: Liste des ouvertures (fenêtres/portes) à éviter
         """
         self.plaster_type = plaster_type
         self.color_preset = color_preset
@@ -94,13 +95,49 @@ class ExteriorCrepi:
         self.aging = aging
         self.random_seed = random_seed
 
+        # ✅ NOUVEAU: Stocker et normaliser les ouvertures
+        self.openings = self._normalize_openings(openings or [])
+
         # Déterminer la couleur finale
         if color_preset == 'CUSTOM' and custom_color:
             self.base_color = custom_color
         else:
             self.base_color = CREPI_COLOR_PRESETS.get(color_preset, CREPI_COLOR_PRESETS['BLANC_CASSE'])
 
-        print(f"[ExteriorCrepi] Type: {plaster_type}, Couleur: {color_preset}")
+        print(f"[ExteriorCrepi] Type: {plaster_type}, Couleur: {color_preset}, Ouvertures: {len(self.openings)}")
+
+    def _normalize_openings(self, openings):
+        """
+        Normalise les ouvertures en coordonnées locales du mur.
+        
+        Les ouvertures arrivent avec des coordonnées globales.
+        On les convertit en coordonnées locales (x_local, z, width_local, height).
+        """
+        normalized = []
+        
+        for op in openings:
+            wall = op.get('wall', '')
+            
+            if wall in ['front', 'back']:
+                # Coordonnées directes
+                normalized.append({
+                    'x': op.get('x', 0),
+                    'z': op.get('z', 0),
+                    'width': op.get('width', 0),
+                    'height': op.get('height', 0),
+                    'type': op.get('type', 'window')
+                })
+            elif wall in ['left', 'right']:
+                # Pour les murs latéraux, y devient x_local et depth devient width_local
+                normalized.append({
+                    'x': op.get('y', 0),
+                    'z': op.get('z', 0),
+                    'width': op.get('depth', op.get('width', 0)),
+                    'height': op.get('height', 0),
+                    'type': op.get('type', 'window')
+                })
+        
+        return normalized
 
     def generate_for_wall(self, wall_obj, wall_width, wall_height, wall_thickness, orientation='front'):
         """
@@ -118,6 +155,10 @@ class ExteriorCrepi:
         """
         random.seed(self.random_seed)
 
+        # Stocker les dimensions pour utilisation dans les méthodes
+        self.wall_width = wall_width
+        self.wall_height = wall_height
+
         # Si le mur existe déjà (briques 3D), on applique juste le matériau
         if wall_obj and wall_obj.data:
             print(f"[ExteriorCrepi] Application sur mur existant ({orientation})")
@@ -132,7 +173,7 @@ class ExteriorCrepi:
             return wall_obj
 
         # Sinon, créer un plan de crépi (pour murs simples)
-        print(f"[ExteriorCrepi] Création nouveau plan de crépi ({orientation})")
+        print(f"[ExteriorCrepi] Création nouveau plan de crépi ({orientation}) avec {len(self.openings)} ouvertures")
         obj = self.create_crepi_plane(wall_width, wall_height, wall_thickness, orientation)
 
         mat = self.create_plaster_material(f"Crepi_{orientation}")
@@ -140,18 +181,48 @@ class ExteriorCrepi:
 
         return obj
 
+    # =================================================================
+    # GÉNÉRATION DU MESH AVEC OUVERTURES
+    # =================================================================
+
     def create_crepi_plane(self, width, height, thickness, orientation):
         """
         Crée un plan de crépi avec relief pour murs simples.
-        
-        ✅ FIX: Plan créé directement dans le plan XZ (vertical)
-        - X = largeur (0 à width)
-        - Y = profondeur (0, avec displacement)
-        - Z = hauteur (0 à height)
+        Gère les ouvertures en générant des segments autour des trous.
         """
 
         bm = bmesh.new()
 
+        if self.openings:
+            # Générer des segments autour des ouvertures
+            self._create_segments_around_openings(bm, width, height)
+        else:
+            # Pas d'ouvertures : créer un plan simple
+            self._create_simple_plane(bm, width, height)
+
+        # Appliquer relief du crépi
+        self.apply_plaster_displacement(bm, width, height)
+
+        # Calculer normales
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+
+        # Créer mesh
+        mesh = bpy.data.meshes.new(f"Crepi_Plane_{orientation}")
+        bm.to_mesh(mesh)
+        bm.free()
+
+        # Smooth shading
+        for poly in mesh.polygons:
+            poly.use_smooth = True
+
+        # Créer objet
+        obj = bpy.data.objects.new(f"Crepi_{orientation}", mesh)
+
+        return obj
+
+    def _create_simple_plane(self, bm, width, height):
+        """Crée un plan simple sans ouvertures"""
+        
         # Subdivisions adaptées pour le relief
         sub_x = max(8, int(32 * (width / max(width, height))))
         sub_z = max(8, int(32 * (height / max(width, height))))
@@ -176,25 +247,137 @@ class ExteriorCrepi:
                 v3 = bm.verts[idx + sub_x + 1]
                 bm.faces.new([v0, v1, v2, v3])
 
-        # Appliquer relief du crépi
-        self.apply_plaster_displacement(bm, width, height)
+    def _create_segments_around_openings(self, bm, width, height):
+        """
+        Crée des segments de crépi autour des ouvertures.
+        
+        Stratégie: Découper le mur en bandes horizontales,
+        puis découper chaque bande autour des ouvertures.
+        """
+        
+        # Collecter tous les niveaux Z (bas et haut de chaque ouverture)
+        z_levels = [0, height]
+        for op in self.openings:
+            z_levels.append(op['z'])
+            z_levels.append(op['z'] + op['height'])
+        
+        # Trier et dédupliquer
+        z_levels = sorted(set(z_levels))
+        
+        # Pour chaque bande horizontale
+        for i in range(len(z_levels) - 1):
+            z_bottom = z_levels[i]
+            z_top = z_levels[i + 1]
+            band_height = z_top - z_bottom
+            
+            if band_height < 0.01:  # Ignorer les bandes trop petites
+                continue
+            
+            # Trouver les ouvertures qui intersectent cette bande
+            intersecting = []
+            for op in self.openings:
+                op_bottom = op['z']
+                op_top = op['z'] + op['height']
+                
+                # L'ouverture intersecte si elle chevauche la bande
+                if op_bottom < z_top and op_top > z_bottom:
+                    intersecting.append(op)
+            
+            # Générer les segments pour cette bande
+            self._create_band_segments(bm, width, z_bottom, z_top, intersecting)
 
-        # Calculer normales
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    def _create_band_segments(self, bm, width, z_bottom, z_top, openings):
+        """
+        Crée les segments d'une bande horizontale en évitant les ouvertures.
+        """
+        
+        band_height = z_top - z_bottom
+        
+        if not openings:
+            # Pas d'ouvertures dans cette bande : créer un rectangle plein
+            self._create_rect_segment(bm, 0, width, z_bottom, z_top)
+            return
+        
+        # Collecter les "trous" horizontaux dans cette bande
+        holes = []
+        for op in openings:
+            holes.append((op['x'], op['x'] + op['width']))
+        
+        # Trier par position X
+        holes.sort(key=lambda h: h[0])
+        
+        # Fusionner les trous qui se chevauchent
+        merged_holes = []
+        for hole in holes:
+            if merged_holes and hole[0] <= merged_holes[-1][1]:
+                merged_holes[-1] = (merged_holes[-1][0], max(merged_holes[-1][1], hole[1]))
+            else:
+                merged_holes.append(hole)
+        
+        # Générer les segments entre les trous
+        current_x = 0
+        for hole_start, hole_end in merged_holes:
+            # Segment avant le trou
+            if current_x < hole_start:
+                seg_width = hole_start - current_x
+                if seg_width > 0.02:  # Minimum 2cm
+                    self._create_rect_segment(bm, current_x, hole_start, z_bottom, z_top)
+            
+            current_x = hole_end
+        
+        # Segment final après tous les trous
+        if current_x < width:
+            seg_width = width - current_x
+            if seg_width > 0.02:
+                self._create_rect_segment(bm, current_x, width, z_bottom, z_top)
 
-        # Créer mesh
-        mesh = bpy.data.meshes.new(f"Crepi_Plane_{orientation}")
-        bm.to_mesh(mesh)
-        bm.free()
-
-        # Smooth shading
-        for poly in mesh.polygons:
-            poly.use_smooth = True
-
-        # Créer objet
-        obj = bpy.data.objects.new(f"Crepi_{orientation}", mesh)
-
-        return obj
+    def _create_rect_segment(self, bm, x_start, x_end, z_bottom, z_top):
+        """
+        Crée un segment rectangulaire de crépi avec subdivision.
+        
+        Args:
+            bm: BMesh
+            x_start: Position X de début
+            x_end: Position X de fin
+            z_bottom: Position Z basse
+            z_top: Position Z haute
+        """
+        
+        seg_width = x_end - x_start
+        seg_height = z_top - z_bottom
+        
+        if seg_width < 0.01 or seg_height < 0.01:
+            return
+        
+        # Subdivisions adaptées à la taille du segment
+        sub_x = max(2, int(8 * seg_width / max(self.wall_width, 1)))
+        sub_z = max(2, int(8 * seg_height / max(self.wall_height, 1)))
+        
+        # Stocker l'index de départ des vertices
+        vert_start_idx = len(bm.verts)
+        
+        # Créer les vertices
+        for iz in range(sub_z + 1):
+            for ix in range(sub_x + 1):
+                x = x_start + (ix / sub_x) * seg_width
+                z = z_bottom + (iz / sub_z) * seg_height
+                y = 0
+                bm.verts.new((x, y, z))
+        
+        bm.verts.ensure_lookup_table()
+        
+        # Créer les faces
+        for iz in range(sub_z):
+            for ix in range(sub_x):
+                idx = vert_start_idx + iz * (sub_x + 1) + ix
+                v0 = bm.verts[idx]
+                v1 = bm.verts[idx + 1]
+                v2 = bm.verts[idx + sub_x + 2]
+                v3 = bm.verts[idx + sub_x + 1]
+                try:
+                    bm.faces.new([v0, v1, v2, v3])
+                except:
+                    pass
 
     def apply_plaster_displacement(self, bm, width, height):
         """
@@ -242,6 +425,10 @@ class ExteriorCrepi:
 
             # ✅ FIX: Déplacement en Y (profondeur/normal du mur)
             v.co.y += n * intensity
+
+    # =================================================================
+    # CRÉATION DU MATÉRIAU
+    # =================================================================
 
     def create_plaster_material(self, mat_name):
         """Crée le shader de crépi universel"""
