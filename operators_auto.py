@@ -2089,7 +2089,7 @@ class HOUSE_OT_generate_auto(Operator):
         from .exterior_walls import ExteriorCrepi
         import math
 
-        print(f"[House] Application crépi/enduit sur {wall_obj.name}")
+        print(f"[House] Application crépi/enduit sur les 4 façades")
 
         # Récupérer les dimensions de la maison
         width = props.house_width
@@ -2170,7 +2170,7 @@ class HOUSE_OT_generate_auto(Operator):
         from .exterior_walls import ExteriorBardage
         import math
 
-        print(f"[House] Application bardage bois sur {wall_obj.name}")
+        print(f"[House] Application bardage bois sur les 4 façades")
 
         width = props.house_width
         length = props.house_length
@@ -2239,7 +2239,7 @@ class HOUSE_OT_generate_auto(Operator):
         from .exterior_walls import ExteriorPierreParement
         import math
 
-        print(f"[House] Application pierre de parement sur {wall_obj.name}")
+        print(f"[House] Application pierre de parement sur les 4 façades")
 
         width = props.house_width
         length = props.house_length
