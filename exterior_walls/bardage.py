@@ -6,6 +6,8 @@
 #  Bardage bois avec 3 shaders : Naturel, Peint, Shou Sugi Ban
 #  Types de pose : Horizontal, Vertical, Claire-voie, Clin
 #
+#  ✅ FIX: Correction axes Y/Z pour orientation verticale correcte
+#
 # ##### END GPL LICENSE BLOCK #####
 
 import bpy
@@ -179,22 +181,22 @@ class ExteriorBardage:
         num_planks = int(math.ceil(self.wall_height / plank_step))
 
         for i in range(num_planks):
-            y_pos = i * plank_step + self.plank_width / 2
+            z_pos = i * plank_step + self.plank_width / 2  # ✅ Position en Z (hauteur)
 
-            if y_pos + self.plank_width / 2 > self.wall_height:
+            if z_pos + self.plank_width / 2 > self.wall_height:
                 continue
 
             # Variation de profondeur pour le clin
-            z_offset = 0
+            y_offset = 0
             if self.pose_type == 'CLIN':
-                z_offset = (i % 2) * self.plank_thickness * 0.3
+                y_offset = (i % 2) * self.plank_thickness * 0.3
 
             # Variation hauteur
-            z_var = random.uniform(-self.height_variation, self.height_variation)
+            y_var = random.uniform(-self.height_variation, self.height_variation)
 
             self._create_plank(
                 bm, uv_layer,
-                0, y_pos, z_offset + z_var,
+                0, y_offset + y_var, z_pos,  # ✅ y=profondeur, z=hauteur
                 self.wall_width, self.plank_width, self.plank_thickness,
                 horizontal=True,
                 plank_index=i
@@ -211,42 +213,57 @@ class ExteriorBardage:
             if x_pos + self.plank_width / 2 > self.wall_width:
                 continue
 
-            z_var = random.uniform(-self.height_variation, self.height_variation)
+            y_var = random.uniform(-self.height_variation, self.height_variation)
 
             self._create_plank(
                 bm, uv_layer,
-                x_pos, 0, z_var,
+                x_pos, y_var, 0,  # ✅ y=profondeur, z=base
                 self.plank_width, self.wall_height, self.plank_thickness,
                 horizontal=False,
                 plank_index=i
             )
 
     def _create_plank(self, bm, uv_layer, x, y, z, width, height, thickness, horizontal=True, plank_index=0):
-        """Crée une lame individuelle"""
+        """
+        Crée une lame individuelle.
+        
+        ✅ FIX: Axes corrigés pour Blender
+        - X = largeur (gauche/droite)
+        - Y = profondeur (avant/arrière) 
+        - Z = hauteur (haut/bas)
+        
+        Args:
+            x: Position X de la lame
+            y: Profondeur (offset Y)
+            z: Position Z (hauteur pour horizontal, base pour vertical)
+            width: Largeur de la lame
+            height: Hauteur de la lame
+            thickness: Épaisseur (profondeur Y)
+        """
 
         if horizontal:
-            # Lame horizontale
+            # Lame horizontale : s'étend en X, Z est la position verticale
             verts = [
-                Vector((0, y - height/2, z)),
-                Vector((width, y - height/2, z)),
-                Vector((width, y + height/2, z)),
-                Vector((0, y + height/2, z)),
-                Vector((0, y - height/2, z + thickness)),
-                Vector((width, y - height/2, z + thickness)),
-                Vector((width, y + height/2, z + thickness)),
-                Vector((0, y + height/2, z + thickness)),
+                Vector((0, y, z - height/2)),
+                Vector((width, y, z - height/2)),
+                Vector((width, y, z + height/2)),
+                Vector((0, y, z + height/2)),
+                Vector((0, y + thickness, z - height/2)),
+                Vector((width, y + thickness, z - height/2)),
+                Vector((width, y + thickness, z + height/2)),
+                Vector((0, y + thickness, z + height/2)),
             ]
         else:
-            # Lame verticale
+            # Lame verticale : s'étend en Z, X est la position horizontale
             verts = [
-                Vector((x - width/2, 0, z)),
-                Vector((x + width/2, 0, z)),
-                Vector((x + width/2, height, z)),
-                Vector((x - width/2, height, z)),
-                Vector((x - width/2, 0, z + thickness)),
-                Vector((x + width/2, 0, z + thickness)),
-                Vector((x + width/2, height, z + thickness)),
-                Vector((x - width/2, height, z + thickness)),
+                Vector((x - width/2, y, 0)),
+                Vector((x + width/2, y, 0)),
+                Vector((x + width/2, y, height)),
+                Vector((x - width/2, y, height)),
+                Vector((x - width/2, y + thickness, 0)),
+                Vector((x + width/2, y + thickness, 0)),
+                Vector((x + width/2, y + thickness, height)),
+                Vector((x - width/2, y + thickness, height)),
             ]
 
         bm_verts = [bm.verts.new(v) for v in verts]
@@ -265,12 +282,12 @@ class ExteriorBardage:
             try:
                 f = bm.faces.new([bm_verts[i] for i in face_indices])
 
-                # UVs
+                # UVs - ✅ Corrigés pour les nouveaux axes
                 if uv_layer:
                     for loop in f.loops:
                         if horizontal:
                             u = (loop.vert.co.x) / self.wall_width
-                            v = (loop.vert.co.y - y + height/2) / height
+                            v = (loop.vert.co.z - z + height/2) / height  # ✅ Z au lieu de Y
                         else:
                             u = (loop.vert.co.x - x + width/2) / width
                             v = (loop.vert.co.z) / self.wall_height
@@ -300,7 +317,7 @@ class ExteriorBardage:
     # =================================================================
 
     def _create_natural_wood_material(self):
-        """Crée le shader de bois naturel vieilli"""
+        """Crée le shader de bois naturel avec grisaillement"""
 
         mat = bpy.data.materials.new(name=f"Bardage_Naturel_{self.wood_species}")
         mat.use_nodes = True
@@ -308,18 +325,6 @@ class ExteriorBardage:
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
         nodes.clear()
-
-        # Couleurs selon essence
-        wood_colors = {
-            'DOUGLAS': ((0.45, 0.28, 0.18), (0.30, 0.18, 0.10)),
-            'MELEZE': ((0.50, 0.32, 0.18), (0.35, 0.20, 0.10)),
-            'CEDRE': ((0.52, 0.25, 0.15), (0.38, 0.15, 0.08)),
-            'PIN': ((0.60, 0.45, 0.28), (0.42, 0.30, 0.18)),
-            'CHENE': ((0.42, 0.30, 0.18), (0.28, 0.18, 0.10)),
-        }
-
-        base_color, dark_color = wood_colors.get(self.wood_species, wood_colors['DOUGLAS'])
-        grey_color = (0.45, 0.43, 0.40)  # Bois grisé
 
         x = -2000
         y = 400
@@ -333,7 +338,6 @@ class ExteriorBardage:
         principled.location = (500, 0)
         principled.inputs['Roughness'].default_value = 0.65
 
-        # Blender 4.2+ compatibility
         try:
             principled.inputs['IOR'].default_value = 1.5
         except KeyError:
@@ -347,113 +351,109 @@ class ExteriorBardage:
 
         mapping = nodes.new('ShaderNodeMapping')
         mapping.location = (x + 200, y)
-        mapping.inputs['Scale'].default_value = (1, 15, 1)  # Étirer les veines
+        mapping.inputs['Scale'].default_value = (1, 15, 1)
 
         links.new(tex_coord.outputs['UV'], mapping.inputs['Vector'])
 
-        # === VEINES DU BOIS ===
-        wave_grain = nodes.new('ShaderNodeTexWave')
-        wave_grain.location = (x + 400, y)
-        wave_grain.wave_type = 'BANDS'
-        wave_grain.bands_direction = 'Y'
-        wave_grain.wave_profile = 'SAW'
-        wave_grain.inputs['Scale'].default_value = 3.0
-        wave_grain.inputs['Distortion'].default_value = 4.0
-        wave_grain.inputs['Detail'].default_value = 3.0
-        wave_grain.inputs['Detail Scale'].default_value = 2.0
+        # === COULEUR BOIS DE BASE ===
+        wood_colors = {
+            'DOUGLAS': (0.55, 0.35, 0.20),
+            'MELEZE': (0.60, 0.40, 0.25),
+            'CEDRE': (0.65, 0.45, 0.28),
+            'PIN': (0.70, 0.50, 0.30),
+            'CHENE': (0.50, 0.32, 0.18),
+        }
+        base_color = wood_colors.get(self.wood_species, (0.55, 0.35, 0.20))
 
-        links.new(mapping.outputs['Vector'], wave_grain.inputs['Vector'])
+        wood_base = nodes.new('ShaderNodeRGB')
+        wood_base.location = (x + 400, y + 200)
+        wood_base.outputs[0].default_value = (*base_color, 1.0)
 
-        # Noise pour variation
-        grain_noise = nodes.new('ShaderNodeTexNoise')
-        grain_noise.location = (x + 400, y - 200)
-        grain_noise.inputs['Scale'].default_value = 8.0
-        grain_noise.inputs['Detail'].default_value = 6.0
-        grain_noise.inputs['Roughness'].default_value = 0.6
+        # Couleur grisée
+        gray_color = (0.45, 0.43, 0.40)
+        wood_gray = nodes.new('ShaderNodeRGB')
+        wood_gray.location = (x + 400, y + 50)
+        wood_gray.outputs[0].default_value = (*gray_color, 1.0)
 
-        links.new(mapping.outputs['Vector'], grain_noise.inputs['Vector'])
+        # === GRAIN DU BOIS ===
+        wave_tex = nodes.new('ShaderNodeTexWave')
+        wave_tex.location = (x + 400, y - 150)
+        wave_tex.wave_type = 'BANDS'
+        wave_tex.bands_direction = 'Y'
+        wave_tex.wave_profile = 'SAW'
+        wave_tex.inputs['Scale'].default_value = 3.0
+        wave_tex.inputs['Distortion'].default_value = 4.0
+        wave_tex.inputs['Detail'].default_value = 3.0
 
-        # Combiner veines
+        links.new(mapping.outputs['Vector'], wave_tex.inputs['Vector'])
+
+        # === NOISE POUR VARIATION ===
+        noise_tex = nodes.new('ShaderNodeTexNoise')
+        noise_tex.location = (x + 400, y - 350)
+        noise_tex.inputs['Scale'].default_value = 8.0
+        noise_tex.inputs['Detail'].default_value = 6.0
+        noise_tex.inputs['Roughness'].default_value = 0.6
+
+        links.new(mapping.outputs['Vector'], noise_tex.inputs['Vector'])
+
+        # === MIX GRAIN + NOISE ===
         grain_mix = nodes.new('ShaderNodeMix')
-        grain_mix.location = (x + 600, y - 100)
-        grain_mix.data_type = 'FLOAT'
-        grain_mix.inputs['Factor'].default_value = 0.5
+        grain_mix.location = (x + 700, y - 200)
+        grain_mix.data_type = 'RGBA'
+        grain_mix.inputs['Factor'].default_value = 0.3
 
-        links.new(wave_grain.outputs['Fac'], grain_mix.inputs[6])  # A
-        links.new(grain_noise.outputs['Fac'], grain_mix.inputs[7])  # B
-
-        # === COULEURS ===
-        base_col = nodes.new('ShaderNodeRGB')
-        base_col.location = (x + 800, y + 200)
-        base_col.outputs[0].default_value = (*base_color, 1.0)
-
-        dark_col = nodes.new('ShaderNodeRGB')
-        dark_col.location = (x + 800, y + 50)
-        dark_col.outputs[0].default_value = (*dark_color, 1.0)
-
-        grey_col = nodes.new('ShaderNodeRGB')
-        grey_col.location = (x + 800, y - 100)
-        grey_col.outputs[0].default_value = (*grey_color, 1.0)
-
-        # Mix base/dark avec grain
-        wood_color_mix = nodes.new('ShaderNodeMix')
-        wood_color_mix.location = (x + 1000, y + 100)
-        wood_color_mix.data_type = 'RGBA'
-
-        links.new(grain_mix.outputs[2], wood_color_mix.inputs['Factor'])  # Result
-        links.new(base_col.outputs[0], wood_color_mix.inputs[6])  # A
-        links.new(dark_col.outputs[0], wood_color_mix.inputs[7])  # B
+        links.new(wave_tex.outputs['Color'], grain_mix.inputs[6])
+        links.new(noise_tex.outputs['Color'], grain_mix.inputs[7])
 
         # === GRISAILLEMENT ===
         weather_noise = nodes.new('ShaderNodeTexNoise')
-        weather_noise.location = (x + 800, y - 500)
+        weather_noise.location = (x + 400, y - 550)
         weather_noise.inputs['Scale'].default_value = 2.0
         weather_noise.inputs['Detail'].default_value = 4.0
 
         links.new(mapping.outputs['Vector'], weather_noise.inputs['Vector'])
 
-        # Intensité grisaillement
-        weather_intensity = nodes.new('ShaderNodeMath')
-        weather_intensity.location = (x + 1000, y - 500)
-        weather_intensity.operation = 'MULTIPLY'
-        weather_intensity.inputs[1].default_value = self.weathering
+        weather_ramp = nodes.new('ShaderNodeMapRange')
+        weather_ramp.location = (x + 600, y - 550)
+        weather_ramp.inputs['From Min'].default_value = 0.3
+        weather_ramp.inputs['From Max'].default_value = 0.7
 
-        links.new(weather_noise.outputs['Fac'], weather_intensity.inputs[0])
+        links.new(weather_noise.outputs['Fac'], weather_ramp.inputs['Value'])
 
-        # Mix avec gris
+        weather_factor = nodes.new('ShaderNodeMath')
+        weather_factor.location = (x + 800, y - 550)
+        weather_factor.operation = 'MULTIPLY'
+        weather_factor.inputs[1].default_value = self.weathering
+
+        links.new(weather_ramp.outputs['Result'], weather_factor.inputs[0])
+
+        # === MIX COULEUR BOIS/GRIS ===
+        color_mix = nodes.new('ShaderNodeMix')
+        color_mix.location = (x + 1000, y + 100)
+        color_mix.data_type = 'RGBA'
+
+        links.new(weather_factor.outputs['Value'], color_mix.inputs['Factor'])
+        links.new(wood_base.outputs[0], color_mix.inputs[6])
+        links.new(wood_gray.outputs[0], color_mix.inputs[7])
+
+        # === VARIATION PAR GRAIN ===
         final_color = nodes.new('ShaderNodeMix')
-        final_color.location = (x + 1400, y)
+        final_color.location = (x + 1200, y)
         final_color.data_type = 'RGBA'
+        final_color.blend_type = 'OVERLAY'
+        final_color.inputs['Factor'].default_value = 0.15
 
-        links.new(weather_intensity.outputs['Value'], final_color.inputs['Factor'])
-        links.new(wood_color_mix.outputs[2], final_color.inputs[6])  # A
-        links.new(grey_col.outputs[0], final_color.inputs[7])  # B
+        links.new(color_mix.outputs[2], final_color.inputs[6])
+        links.new(grain_mix.outputs[2], final_color.inputs[7])
 
-        # === VARIATION PAR LAME ===
-        plank_var = nodes.new('ShaderNodeTexNoise')
-        plank_var.location = (x + 1200, y + 300)
-        plank_var.inputs['Scale'].default_value = 0.5
-        plank_var.inputs['Detail'].default_value = 0.0
-
-        links.new(tex_coord.outputs['UV'], plank_var.inputs['Vector'])
-
-        var_mix = nodes.new('ShaderNodeMix')
-        var_mix.location = (x + 1600, y + 100)
-        var_mix.data_type = 'RGBA'
-        var_mix.blend_type = 'OVERLAY'
-        var_mix.inputs['Factor'].default_value = self.plank_variation * 0.2
-
-        links.new(final_color.outputs[2], var_mix.inputs[6])  # A
-        links.new(plank_var.outputs['Color'], var_mix.inputs[7])  # B
-
-        links.new(var_mix.outputs[2], principled.inputs['Base Color'])
+        links.new(final_color.outputs[2], principled.inputs['Base Color'])
 
         # === BUMP ===
         bump = nodes.new('ShaderNodeBump')
-        bump.location = (x + 1400, y - 350)
-        bump.inputs['Strength'].default_value = 0.3
+        bump.location = (x + 1200, y - 400)
+        bump.inputs['Strength'].default_value = 0.2
 
-        links.new(grain_mix.outputs[2], bump.inputs['Height'])
+        links.new(wave_tex.outputs['Fac'], bump.inputs['Height'])
         links.new(bump.outputs['Normal'], principled.inputs['Normal'])
 
         return mat
@@ -463,7 +463,13 @@ class ExteriorBardage:
     # =================================================================
 
     def _create_painted_wood_material(self):
-        """Crée le shader de bois peint"""
+        """Crée le shader de bois peint avec usure"""
+
+        # Récupérer couleur
+        if self.paint_color_preset == 'CUSTOM' and self.paint_custom_color:
+            paint_color = self.paint_custom_color[:3]
+        else:
+            paint_color = PAINT_COLOR_PRESETS.get(self.paint_color_preset, (0.55, 0.58, 0.62))
 
         mat = bpy.data.materials.new(name=f"Bardage_Peint_{self.paint_color_preset}")
         mat.use_nodes = True
@@ -471,12 +477,6 @@ class ExteriorBardage:
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
         nodes.clear()
-
-        # Déterminer la couleur
-        if self.paint_color_preset == 'CUSTOM' and self.paint_custom_color:
-            paint_color = self.paint_custom_color
-        else:
-            paint_color = PAINT_COLOR_PRESETS.get(self.paint_color_preset, PAINT_COLOR_PRESETS['GRIS_BLEU'])
 
         x = -2000
         y = 400
@@ -488,7 +488,7 @@ class ExteriorBardage:
         # === PRINCIPLED BSDF ===
         principled = nodes.new('ShaderNodeBsdfPrincipled')
         principled.location = (500, 0)
-        principled.inputs['Roughness'].default_value = 0.45
+        principled.inputs['Roughness'].default_value = 0.55
 
         try:
             principled.inputs['IOR'].default_value = 1.5
