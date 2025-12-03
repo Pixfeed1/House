@@ -7,6 +7,11 @@ Adapté du script universel pour l'intégration dans l'extension House.
 Compatible avec murs simples et briques 3D.
 Gère automatiquement les ouvertures (portes et fenêtres).
 
+✅ FIX: Correction axes Y/Z pour orientation verticale correcte
+- X = largeur (gauche/droite)
+- Y = profondeur (avant/arrière) 
+- Z = hauteur (haut/bas)
+
 Blender 4.2+
 """
 
@@ -136,29 +141,42 @@ class ExteriorCrepi:
         return obj
 
     def create_crepi_plane(self, width, height, thickness, orientation):
-        """Crée un plan de crépi avec relief pour murs simples"""
+        """
+        Crée un plan de crépi avec relief pour murs simples.
+        
+        ✅ FIX: Plan créé directement dans le plan XZ (vertical)
+        - X = largeur (0 à width)
+        - Y = profondeur (0, avec displacement)
+        - Z = hauteur (0 à height)
+        """
 
         bm = bmesh.new()
 
-        # Subdivisions adaptées
+        # Subdivisions adaptées pour le relief
         sub_x = max(8, int(32 * (width / max(width, height))))
-        sub_y = max(8, int(32 * (height / max(width, height))))
+        sub_z = max(8, int(32 * (height / max(width, height))))
 
-        # Créer grille
-        bmesh.ops.create_grid(bm, x_segments=sub_x, y_segments=sub_y, size=1.0)
+        # Créer les vertices directement dans le bon plan (XZ vertical)
+        for iz in range(sub_z + 1):
+            for ix in range(sub_x + 1):
+                x = (ix / sub_x) * width
+                z = (iz / sub_z) * height
+                y = 0  # Profondeur de base
+                bm.verts.new((x, y, z))
 
-        # Redimensionner
-        bmesh.ops.scale(bm, vec=(width/2, height/2, 1), verts=bm.verts)
+        bm.verts.ensure_lookup_table()
 
-        # Rotation verticale (face en Y)
-        angle_x = math.radians(90)
-        rot_matrix = Matrix.Rotation(angle_x, 3, 'X')
-        bmesh.ops.rotate(bm, verts=bm.verts, cent=(0,0,0), matrix=rot_matrix)
+        # Créer les faces
+        for iz in range(sub_z):
+            for ix in range(sub_x):
+                idx = iz * (sub_x + 1) + ix
+                v0 = bm.verts[idx]
+                v1 = bm.verts[idx + 1]
+                v2 = bm.verts[idx + sub_x + 2]
+                v3 = bm.verts[idx + sub_x + 1]
+                bm.faces.new([v0, v1, v2, v3])
 
-        # Déplacer pour avoir base au sol et centré
-        bmesh.ops.translate(bm, vec=(width/2, thickness/2, height/2), verts=bm.verts)
-
-        # Appliquer relief
+        # Appliquer relief du crépi
         self.apply_plaster_displacement(bm, width, height)
 
         # Calculer normales
@@ -179,13 +197,17 @@ class ExteriorCrepi:
         return obj
 
     def apply_plaster_displacement(self, bm, width, height):
-        """Applique le relief du crépi au mesh"""
+        """
+        Applique le relief du crépi au mesh.
+        
+        ✅ FIX: Déplacement sur l'axe Y (profondeur/normal du mur)
+        """
 
         intensity = self.grain_intensity * 0.003
         scale = 50.0 / self.grain_size
 
         for v in bm.verts:
-            # Position pour le noise
+            # Position pour le noise - utilise X et Z (plan vertical)
             pos = Vector((v.co.x * scale, v.co.z * scale, self.random_seed))
 
             if self.plaster_type == 'GRATTE':
@@ -218,7 +240,7 @@ class ExteriorCrepi:
                 n = noise.noise(Vector((pos.x * 0.3, pos.y * 0.3, pos.z)))
                 intensity *= 0.3
 
-            # Appliquer le déplacement en Y (normal du mur)
+            # ✅ FIX: Déplacement en Y (profondeur/normal du mur)
             v.co.y += n * intensity
 
     def create_plaster_material(self, mat_name):
@@ -242,9 +264,13 @@ class ExteriorCrepi:
         principled = nodes.new('ShaderNodeBsdfPrincipled')
         principled.location = (500, 0)
         principled.inputs['Roughness'].default_value = self.get_base_roughness()
-        principled.inputs['IOR'].default_value = 1.45
 
         # Blender 4.2 compatible
+        try:
+            principled.inputs['IOR'].default_value = 1.45
+        except KeyError:
+            pass
+
         try:
             principled.inputs['Specular IOR Level'].default_value = 0.3
         except KeyError:
