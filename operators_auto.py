@@ -2081,7 +2081,7 @@ class HOUSE_OT_generate_auto(Operator):
             context.scene.collection.objects.link(light_object)
             light_object.location = (width / 2, length / 2 - 5, total_height + 5)
 
-    def _apply_exterior_crepi(self, wall_obj, props, collection):
+    def _apply_exterior_crepi(self, wall_obj, props, collection, openings=None):
         """Applique un crépi/enduit extérieur sur les 4 murs
 
         ✅ CORRECTION: Créer 4 plans de crépi (un par façade) correctement positionnés
@@ -2126,6 +2126,9 @@ class HOUSE_OT_generate_auto(Operator):
             ]
 
             for facade in facades:
+                # Filtrer les ouvertures pour cette façade
+                facade_openings = [o for o in (openings or []) if o.get('wall') == facade['name']]
+
                 crepi = ExteriorCrepi(
                     plaster_type=props.exterior_crepi_type,
                     color_preset=color_preset,
@@ -2138,7 +2141,8 @@ class HOUSE_OT_generate_auto(Operator):
                     moss=moss,
                     cracks=cracks,
                     aging=props.exterior_crepi_aging,
-                    random_seed=42
+                    random_seed=42,
+                    openings=facade_openings
                 )
 
                 crepi_obj = crepi.generate_for_wall(
@@ -2162,7 +2166,7 @@ class HOUSE_OT_generate_auto(Operator):
             import traceback
             traceback.print_exc()
 
-    def _apply_exterior_bardage(self, wall_obj, props, collection):
+    def _apply_exterior_bardage(self, wall_obj, props, collection, openings=None):
         """Applique un bardage bois extérieur sur les 4 murs
 
         ✅ CORRECTION: Créer 4 panneaux de bardage correctement positionnés
@@ -2197,6 +2201,9 @@ class HOUSE_OT_generate_auto(Operator):
             ]
 
             for facade in facades:
+                # Filtrer les ouvertures pour cette façade
+                facade_openings = [o for o in (openings or []) if o.get('wall') == facade['name']]
+
                 bardage = ExteriorBardage(
                     wall_width=facade['width'],
                     wall_height=facade['height'],
@@ -2214,7 +2221,8 @@ class HOUSE_OT_generate_auto(Operator):
                     burn_intensity=props.bardage_burn_intensity,
                     plank_variation=props.bardage_variation,
                     height_variation=0.001,
-                    random_seed=42
+                    random_seed=42,
+                    openings=facade_openings
                 )
 
                 bardage_obj = bardage.generate_for_wall(None, collection)
@@ -2231,7 +2239,7 @@ class HOUSE_OT_generate_auto(Operator):
             import traceback
             traceback.print_exc()
 
-    def _apply_exterior_pierre(self, wall_obj, props, collection):
+    def _apply_exterior_pierre(self, wall_obj, props, collection, openings=None):
         """Applique un parement pierre extérieur sur les 4 murs
 
         ✅ CORRECTION: Créer 4 panneaux de pierre correctement positionnés
@@ -2266,6 +2274,9 @@ class HOUSE_OT_generate_auto(Operator):
             ]
 
             for facade in facades:
+                # Filtrer les ouvertures pour cette façade
+                facade_openings = [o for o in (openings or []) if o.get('wall') == facade['name']]
+
                 pierre = ExteriorPierreParement(
                     wall_width=facade['width'],
                     wall_height=facade['height'],
@@ -2286,7 +2297,8 @@ class HOUSE_OT_generate_auto(Operator):
                     weathering=props.pierre_weathering,
                     moss=props.pierre_moss,
                     dirt=props.pierre_dirt,
-                    random_seed=42
+                    random_seed=42,
+                    openings=facade_openings
                 )
 
                 pierre_obj = pierre.generate_for_wall(None, collection)
@@ -2323,15 +2335,18 @@ class HOUSE_OT_generate_auto(Operator):
         glass_mat = self._get_or_create_glass_material("House_Glass")
 
         # ✅ FINITIONS EXTÉRIEURES - Créer AVANT la boucle (remplacent les murs)
+        # Calculer les ouvertures pour les finitions extérieures
+        openings = self._calculate_openings_for_brick_walls(props)
+
         # Les finitions sont créées indépendamment des murs existants
         if hasattr(props, 'use_exterior_crepi') and props.use_exterior_crepi:
-            self._apply_exterior_crepi(None, props, collection)
+            self._apply_exterior_crepi(None, props, collection, openings)
 
         if hasattr(props, 'use_exterior_bardage') and props.use_exterior_bardage:
-            self._apply_exterior_bardage(None, props, collection)
+            self._apply_exterior_bardage(None, props, collection, openings)
 
         if hasattr(props, 'use_exterior_pierre') and props.use_exterior_pierre:
-            self._apply_exterior_pierre(None, props, collection)
+            self._apply_exterior_pierre(None, props, collection, openings)
 
         for obj in collection.objects:
             if obj.type != 'MESH' or obj.hide_render:
