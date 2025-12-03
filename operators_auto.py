@@ -739,7 +739,7 @@ class HOUSE_OT_generate_auto(Operator):
                 openings.append({
                     'x': opening_x,
                     'y': 0,
-                    'z': window_z,
+                    'z': window_z - window_height/2,
                     'width': window_width,
                     'height': window_height,
                     'depth': WALL_THICKNESS,
@@ -755,7 +755,7 @@ class HOUSE_OT_generate_auto(Operator):
                 openings.append({
                     'x': opening_x,
                     'y': length,
-                    'z': window_z,
+                    'z': window_z - window_height/2,
                     'width': window_width,
                     'height': window_height,
                     'depth': WALL_THICKNESS,
@@ -775,7 +775,7 @@ class HOUSE_OT_generate_auto(Operator):
                 openings.append({
                     'x': 0,
                     'y': opening_y,
-                    'z': window_z,
+                    'z': window_z - window_height/2,
                     'width': WALL_THICKNESS,  # ✅ FIX: dimension le long de X
                     'height': window_height,
                     'depth': window_width,  # ✅ FIX: dimension le long de Y
@@ -792,7 +792,7 @@ class HOUSE_OT_generate_auto(Operator):
                 openings.append({
                     'x': width,
                     'y': opening_y,
-                    'z': window_z,
+                    'z': window_z - window_height/2,
                     'width': WALL_THICKNESS,  # ✅ FIX: dimension le long de X
                     'height': window_height,
                     'depth': window_width,  # ✅ FIX: dimension le long de Y
