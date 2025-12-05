@@ -448,69 +448,127 @@ class RoomLayoutManager:
 class RoomLayoutGenerator:
     """
     Classe de compatibilité pour l'ancien système.
-    Redirige vers RoomLayoutManager.
+    Reproduit l'ancienne API et redirige vers RoomLayoutManager.
     """
 
-    def __init__(self):
-        self._manager = RoomLayoutManager()
-
-    def generate(
+    def __init__(
         self,
-        house_width: float,
-        house_depth: float,
-        num_rooms: int = 4,
-        floor_height: float = 2.5,
-        wall_thickness: float = 0.1,
-        **kwargs
-    ) -> dict:
-        """
-        Interface de compatibilité avec l'ancien système.
+        width: float,
+        length: float,
+        num_floors: int = 1,
+        partition_thickness: float = 0.10,
+        window_positions: list = None
+    ):
+        self.width = width
+        self.length = length  # = depth
+        self.num_floors = num_floors
+        self.partition_thickness = partition_thickness
+        self.window_positions = window_positions or []
 
-        Args:
-            house_width: Largeur de la maison
-            house_depth: Profondeur de la maison
-            num_rooms: Nombre de pièces (utilisé pour choisir le preset)
-            floor_height: Hauteur sous plafond
-            wall_thickness: Épaisseur des cloisons
+        self._manager = RoomLayoutManager()
+        self._floor_plan = None
+        self._partitions_specs = []
+
+    def generate_auto_layout(
+        self,
+        num_rooms: int = 4,
+        include_kitchen: bool = True,
+        include_bathroom: bool = True,
+        num_bathrooms: int = 1,
+        **kwargs
+    ) -> list:
+        """
+        Génère automatiquement la distribution des pièces.
 
         Returns:
-            Dict avec 'rooms' et 'partitions' pour compatibilité
+            Liste des spécifications de cloisons
         """
         # Mapper num_rooms vers un preset
-        preset_map = {
-            1: 'T1',
-            2: 'T1',
-            3: 'T2',
-            4: 'T3',
-            5: 'T3',
-            6: 'T4',
-            7: 'T4',
-            8: 'T5',
-            9: 'T5',
-            10: 'T6',
-        }
-        preset_id = preset_map.get(num_rooms, 'T3')
+        if num_rooms <= 2:
+            preset_id = 'T1'
+        elif num_rooms <= 3:
+            preset_id = 'T2'
+        elif num_rooms <= 5:
+            preset_id = 'T3'
+        elif num_rooms <= 7:
+            preset_id = 'T4'
+        elif num_rooms <= 9:
+            preset_id = 'T5'
+        else:
+            preset_id = 'T6'
 
         # Configurer le solver
         from .solver import SolverConfig
         config = SolverConfig(
-            wall_thickness=wall_thickness,
+            wall_thickness=self.partition_thickness,
         )
         self._manager.solver_config = config
 
         # Générer le layout
         result = self._manager.generate_layout(
-            width=house_width,
-            depth=house_depth,
+            width=self.width,
+            depth=self.length,
             preset_id=preset_id
         )
 
-        if not result.success or not result.floor_plan:
-            return {'rooms': [], 'partitions': []}
+        if result.success and result.floor_plan:
+            self._floor_plan = result.floor_plan
+            self._partitions_specs = self._manager.get_partition_data(result.floor_plan)
+        else:
+            self._floor_plan = None
+            self._partitions_specs = []
+            print(f"[RoomLayout] Échec génération: {result.messages}")
 
-        # Convertir vers l'ancien format
+        return self._partitions_specs
+
+    def create_partition_meshes(
+        self,
+        collection,
+        floor_height: float = 2.50
+    ) -> list:
+        """
+        Crée les meshes des cloisons dans Blender.
+
+        Args:
+            collection: Collection Blender où ajouter les objets
+            floor_height: Hauteur des cloisons
+
+        Returns:
+            Liste des objets créés
+        """
+        if not self._floor_plan:
+            print("[RoomLayout] Pas de plan généré, impossible de créer les meshes")
+            return []
+
+        try:
+            from .geometry import GeometryConfig, generate_interior_walls
+
+            config = GeometryConfig(
+                wall_thickness=self.partition_thickness,
+                wall_height=floor_height,
+            )
+
+            result = generate_interior_walls(
+                floor_plan=self._floor_plan,
+                collection_name=collection.name,
+                floor_z=0.0,
+                config=config
+            )
+
+            return result.get('walls', [])
+
+        except Exception as e:
+            print(f"[RoomLayout] Erreur création meshes: {e}")
+            return []
+
+    @property
+    def rooms(self) -> list:
+        """Retourne la liste des pièces générées."""
+        if not self._floor_plan:
+            return []
+
         rooms = []
-        for room in result.floor_plan.placed_rooms:
+        for room in self._floor_plan.placed_rooms:
             if room.bounds:
                 rooms.append({
                     'name': room.name,
@@ -521,14 +579,12 @@ class RoomLayoutGenerator:
                     'depth': room.bounds.depth,
                     'area': room.area,
                 })
+        return rooms
 
-        partitions = self._manager.get_partition_data(result.floor_plan)
-
-        return {
-            'rooms': rooms,
-            'partitions': partitions,
-            'floor_plan': result.floor_plan,  # Nouveau: accès direct au plan
-        }
+    @property
+    def partitions(self) -> list:
+        """Retourne la liste des cloisons."""
+        return self._partitions_specs
 
 
 # =============================================================================
