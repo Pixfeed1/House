@@ -182,15 +182,23 @@ class WallGeometryGenerator:
         Returns:
             Liste de WallSegment représentant toutes les cloisons
         """
+        print(f"[WallGeometryGenerator] generate_wall_segments() appelé")
+        print(f"[WallGeometryGenerator]   placed_rooms: {len(floor_plan.placed_rooms)}")
+        print(f"[WallGeometryGenerator]   doors: {len(floor_plan.doors)}")
+
         segments: List[WallSegment] = []
         processed_edges: Set[Tuple[float, float, float, float]] = set()
 
         # Pour chaque paire de pièces adjacentes
         for room in floor_plan.placed_rooms:
             if not room.bounds:
+                print(f"[WallGeometryGenerator]   Room {room.name} has no bounds, skipping")
                 continue
 
-            for other in floor_plan.get_adjacent_rooms(room):
+            adjacent = floor_plan.get_adjacent_rooms(room)
+            print(f"[WallGeometryGenerator]   Room {room.name} bounds=({room.bounds.x:.2f}, {room.bounds.y:.2f}, {room.bounds.width:.2f}x{room.bounds.depth:.2f}), adjacent_rooms={len(adjacent)}")
+
+            for other in adjacent:
                 if not other.bounds:
                     continue
 
@@ -230,10 +238,14 @@ class WallGeometryGenerator:
                         )
 
                 segments.append(segment)
+                print(f"[WallGeometryGenerator]   Segment créé: {room.name} <-> {other.name}, side={side}, pos={position:.2f}, range=[{start:.2f}, {end:.2f}]")
+
+        print(f"[WallGeometryGenerator] Total segments avant fusion: {len(segments)}")
 
         # Fusionner les murs coplanaires si configuré
         if self.config.merge_coplanar_walls:
             segments = self._merge_coplanar_segments(segments)
+            print(f"[WallGeometryGenerator] Total segments après fusion: {len(segments)}")
 
         return segments
 
@@ -398,14 +410,22 @@ if HAS_BLENDER:
             Returns:
                 Liste des objets créés
             """
+            print(f"[BlenderWallBuilder] build_walls() appelé avec {len(segments)} segments")
             objects = []
+            wall_count = 0
+            frame_count = 0
 
             for i, segment in enumerate(segments):
+                print(f"[BlenderWallBuilder] Segment {i}: start=({segment.start_x:.2f}, {segment.start_y:.2f}) end=({segment.end_x:.2f}, {segment.end_y:.2f}) length={segment.length:.2f}")
+                print(f"[BlenderWallBuilder]   openings={len(segment.openings)}, solid_segments={segment.get_solid_segments()}")
                 obj = self._create_wall_mesh(segment, floor_z, f"Wall_{i:03d}")
 
                 if obj:
                     collection.objects.link(obj)
                     objects.append(obj)
+                    wall_count += 1
+                    # Vérifier si le mesh a des vertices
+                    print(f"[BlenderWallBuilder]   Wall créé: {obj.name}, vertices={len(obj.data.vertices)}")
 
                     # Appliquer le matériau
                     self._apply_material(obj, self.config.wall_material_name)
@@ -419,7 +439,10 @@ if HAS_BLENDER:
                             if frame:
                                 collection.objects.link(frame)
                                 objects.append(frame)
+                                frame_count += 1
+                                print(f"[BlenderWallBuilder]   DoorFrame créé: {frame.name}")
 
+            print(f"[BlenderWallBuilder] RÉSUMÉ: {wall_count} murs, {frame_count} cadres de porte")
             return objects
 
         def _create_wall_mesh(
