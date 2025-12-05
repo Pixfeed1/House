@@ -442,10 +442,103 @@ class RoomLayoutManager:
 
 
 # =============================================================================
+# COMPATIBILITÉ AVEC L'ANCIEN SYSTÈME
+# =============================================================================
+
+class RoomLayoutGenerator:
+    """
+    Classe de compatibilité pour l'ancien système.
+    Redirige vers RoomLayoutManager.
+    """
+
+    def __init__(self):
+        self._manager = RoomLayoutManager()
+
+    def generate(
+        self,
+        house_width: float,
+        house_depth: float,
+        num_rooms: int = 4,
+        floor_height: float = 2.5,
+        wall_thickness: float = 0.1,
+        **kwargs
+    ) -> dict:
+        """
+        Interface de compatibilité avec l'ancien système.
+
+        Args:
+            house_width: Largeur de la maison
+            house_depth: Profondeur de la maison
+            num_rooms: Nombre de pièces (utilisé pour choisir le preset)
+            floor_height: Hauteur sous plafond
+            wall_thickness: Épaisseur des cloisons
+
+        Returns:
+            Dict avec 'rooms' et 'partitions' pour compatibilité
+        """
+        # Mapper num_rooms vers un preset
+        preset_map = {
+            1: 'T1',
+            2: 'T1',
+            3: 'T2',
+            4: 'T3',
+            5: 'T3',
+            6: 'T4',
+            7: 'T4',
+            8: 'T5',
+            9: 'T5',
+            10: 'T6',
+        }
+        preset_id = preset_map.get(num_rooms, 'T3')
+
+        # Configurer le solver
+        from .solver import SolverConfig
+        config = SolverConfig(
+            wall_thickness=wall_thickness,
+        )
+        self._manager.solver_config = config
+
+        # Générer le layout
+        result = self._manager.generate_layout(
+            width=house_width,
+            depth=house_depth,
+            preset_id=preset_id
+        )
+
+        if not result.success or not result.floor_plan:
+            return {'rooms': [], 'partitions': []}
+
+        # Convertir vers l'ancien format
+        rooms = []
+        for room in result.floor_plan.placed_rooms:
+            if room.bounds:
+                rooms.append({
+                    'name': room.name,
+                    'type': room.room_type_id,
+                    'x': room.bounds.x,
+                    'y': room.bounds.y,
+                    'width': room.bounds.width,
+                    'depth': room.bounds.depth,
+                    'area': room.area,
+                })
+
+        partitions = self._manager.get_partition_data(result.floor_plan)
+
+        return {
+            'rooms': rooms,
+            'partitions': partitions,
+            'floor_plan': result.floor_plan,  # Nouveau: accès direct au plan
+        }
+
+
+# =============================================================================
 # EXPORTS
 # =============================================================================
 
 __all__ = [
+    # Compatibilité ancien système
+    'RoomLayoutGenerator',
+
     # Manager principal
     'RoomLayoutManager',
 
