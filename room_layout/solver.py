@@ -623,6 +623,12 @@ class RoomPlacementSolver:
         target_area = room.target_area or (room_type.area_default if room_type else 6.0)
         min_width = room_type.min_width if room_type else 1.5
 
+        # PRIORITÉ 1: Placer adjacent aux pièces existantes
+        candidates.extend(self._find_adjacent_candidates(
+            room, floor_plan, target_area, min_width
+        ))
+
+        # PRIORITÉ 2: Placer dans les espaces disponibles
         for space in available_space:
             if space.area < target_area * 0.8:
                 continue
@@ -664,6 +670,80 @@ class RoomPlacementSolver:
                             exterior_walls=exterior,
                             adjacent_rooms=[]
                         ))
+
+        return candidates
+
+    def _find_adjacent_candidates(
+        self,
+        room: Room,
+        floor_plan: FloorPlan,
+        target_area: float,
+        min_width: float
+    ) -> List[PlacementCandidate]:
+        """Trouve des positions adjacentes aux pièces existantes."""
+
+        candidates = []
+        inner_bounds = floor_plan.bounds.shrink(self.config.exterior_wall_thickness)
+
+        for placed in floor_plan.placed_rooms:
+            if not placed.bounds:
+                continue
+
+            pb = placed.bounds  # Placed bounds
+
+            # Calculer dimensions optimales
+            for aspect in [0.6, 0.8, 1.0, 1.25, 1.67]:
+                width = math.sqrt(target_area * aspect)
+                depth = target_area / width
+
+                if width < min_width or depth < min_width:
+                    continue
+
+                # Essayer les 4 côtés de la pièce placée
+                test_positions = [
+                    # À droite (EAST)
+                    Rectangle(pb.x_max, pb.y, width, min(depth, pb.depth)),
+                    # À gauche (WEST)
+                    Rectangle(pb.x - width, pb.y, width, min(depth, pb.depth)),
+                    # En haut (NORTH)
+                    Rectangle(pb.x, pb.y_max, min(width, pb.width), depth),
+                    # En bas (SOUTH)
+                    Rectangle(pb.x, pb.y - depth, min(width, pb.width), depth),
+                ]
+
+                for bounds in test_positions:
+                    # Vérifier dans les limites
+                    if (bounds.x < inner_bounds.x or
+                        bounds.y < inner_bounds.y or
+                        bounds.x_max > inner_bounds.x_max or
+                        bounds.y_max > inner_bounds.y_max):
+                        continue
+
+                    # Vérifier pas de collision
+                    if self._collides_with_placed_rooms(bounds, floor_plan):
+                        continue
+
+                    # Vérifier surface suffisante
+                    if bounds.area < target_area * 0.7:
+                        continue
+
+                    exterior = bounds.get_exterior_walls(
+                        floor_plan.bounds,
+                        wall_thickness=self.config.exterior_wall_thickness
+                    )
+
+                    score = self._calculate_candidate_score(
+                        room, bounds, floor_plan, exterior
+                    )
+                    # Bonus pour être adjacent
+                    score += 15.0
+
+                    candidates.append(PlacementCandidate(
+                        bounds=bounds,
+                        score=score,
+                        exterior_walls=exterior,
+                        adjacent_rooms=[placed.room_type_id]
+                    ))
 
         return candidates
 

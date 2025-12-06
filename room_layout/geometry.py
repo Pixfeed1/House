@@ -209,11 +209,8 @@ class WallGeometryGenerator:
 
                 side, position, start, end = shared
 
-                # Éviter les doublons
-                edge_key = tuple(sorted([
-                    (start, end, position, side.value),
-                    (start, end, position, side.value)
-                ])[0])
+                # Éviter les doublons - utiliser les IDs de pièces triés comme clé
+                edge_key = tuple(sorted([room.id, other.id]))
 
                 if edge_key in processed_edges:
                     continue
