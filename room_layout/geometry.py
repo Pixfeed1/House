@@ -459,13 +459,17 @@ if HAS_BLENDER:
             try:
                 dx, dy = segment.direction
                 nx, ny = segment.normal
+                print(f"[_create_wall_mesh] {name}: direction=({dx:.3f}, {dy:.3f}), normal=({nx:.3f}, {ny:.3f})")
 
                 half_thick = segment.thickness / 2
+                print(f"[_create_wall_mesh]   thickness={segment.thickness}, height={segment.height}")
 
                 # Pour chaque segment solide
                 solid_segments = segment.get_solid_segments()
+                print(f"[_create_wall_mesh]   solid_segments={solid_segments}")
 
                 for seg_start, seg_end in solid_segments:
+                    print(f"[_create_wall_mesh]   Creating geometry for solid [{seg_start:.2f}, {seg_end:.2f}]")
                     # Calculer les 4 coins au sol
                     p1_x = segment.start_x + dx * seg_start - nx * half_thick
                     p1_y = segment.start_y + dy * seg_start - ny * half_thick
