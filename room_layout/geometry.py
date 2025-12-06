@@ -782,15 +782,28 @@ def generate_interior_walls(
     
     cfg = config or GeometryConfig()
     
-    # Créer ou récupérer la collection
+    # Créer une sous-collection dédiée aux cloisons intérieures
+    # pour éviter de supprimer les murs extérieurs
+    partitions_coll_name = f"{collection_name}_Interior_Partitions"
+    
+    # Récupérer la collection parent
+    parent_collection = None
     if collection_name in bpy.data.collections:
-        collection = bpy.data.collections[collection_name]
-        # Nettoyer les anciens objets
+        parent_collection = bpy.data.collections[collection_name]
+    
+    # Créer ou nettoyer la sous-collection des cloisons
+    if partitions_coll_name in bpy.data.collections:
+        collection = bpy.data.collections[partitions_coll_name]
+        # Nettoyer uniquement les objets de cette sous-collection
         for obj in list(collection.objects):
             bpy.data.objects.remove(obj, do_unlink=True)
     else:
-        collection = bpy.data.collections.new(collection_name)
-        bpy.context.scene.collection.children.link(collection)
+        collection = bpy.data.collections.new(partitions_coll_name)
+        # Lier à la collection parent ou à la scène
+        if parent_collection:
+            parent_collection.children.link(collection)
+        else:
+            bpy.context.scene.collection.children.link(collection)
     
     # Générer les segments de murs
     wall_gen = WallGeometryGenerator(cfg)
