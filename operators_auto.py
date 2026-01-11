@@ -26,8 +26,8 @@ from .gutters import GuttersGenerator
 from .interior_walls import InteriorWallFinishManager
 from .interior_walls.paint_colors import get_paint_color
 
-# Import du système de distribution des pièces
-from .room_layout import RoomLayoutGenerator
+# Import du système de distribution des pièces (v2 avec portes complètes)
+from .room_layout import RoomLayoutGenerator, HOUSING_PRESETS
 
 # ============================================================
 # MODE DEBUG (activer pour logs détaillés)
@@ -1038,64 +1038,129 @@ class HOUSE_OT_generate_auto(Operator):
 
     def _generate_room_partitions(self, context, props, collection):
         """Génère les cloisons intérieures pour créer des pièces
-
-        ✅ NOUVEAU SYSTÈME: Utilise room_layout.py pour générer la distribution
-        ✅ ÉVITEMENT FENÊTRES: Calcule positions fenêtres et les évite
+        
+        ✅ SYSTÈME V2: Utilise room_layout avec portes complètes
+        - Portes avec vantail, cadre, poignées des deux côtés
+        - Sens d'ouverture intelligent selon type de pièce
+        - Porte d'entrée automatique
         """
         if not (hasattr(props, 'use_room_layout') and props.use_room_layout):
             print("[House] Système de distribution des pièces désactivé")
             return []
-
+        
+        from .room_layout import (
+            RoomLayoutManager,
+            GeometryConfig,
+        )
+        
         width = props.house_width
         length = props.house_length
-        num_floors = props.num_floors
-        partition_thickness = props.partition_thickness if hasattr(props, 'partition_thickness') else 0.10
-
-        # ✅ Calculer positions des fenêtres pour éviter collisions
-        window_positions = self._calculate_window_positions(props)
-
-        # Créer le générateur avec support multi-étages + positions fenêtres
-        layout_gen = RoomLayoutGenerator(width, length, num_floors, partition_thickness, window_positions)
-
-        # Mode AUTO ou MANUAL
-        mode = props.room_layout_mode if hasattr(props, 'room_layout_mode') else 'AUTO'
-
-        if mode == 'AUTO':
-            # Distribution automatique intelligente
-            print(f"[House] Mode AUTO: {props.num_rooms} pièces")
-
-            partitions_specs = layout_gen.generate_auto_layout(
-                num_rooms=props.num_rooms,
-                include_kitchen=props.include_kitchen,
-                include_bathroom=props.include_bathroom,
-                num_bathrooms=props.num_bathrooms
-            )
-        else:
-            # Mode manuel (pour l'instant vide, à implémenter)
-            print("[House] Mode MANUAL: non implémenté, utilisation AUTO par défaut")
-            partitions_specs = layout_gen.generate_auto_layout(
-                num_rooms=props.num_rooms,
-                include_kitchen=props.include_kitchen,
-                include_bathroom=props.include_bathroom,
-                num_bathrooms=props.num_bathrooms
-            )
-
-        # Créer les mesh des cloisons pour tous les étages avec portes
         floor_height = props.floor_height
-
-        partition_objects = layout_gen.create_partition_meshes(collection, floor_height)
-
-        # Appliquer matériau simple aux cloisons
-        partition_mat = self._get_or_create_material("House_Partition", (0.95, 0.95, 0.92))
-
-        for obj in partition_objects:
-            if obj.data.materials:
-                obj.data.materials[0] = partition_mat
+        partition_thickness = props.partition_thickness if hasattr(props, 'partition_thickness') else 0.10
+        
+        print(f"[House] Distribution des pièces V2: {width}m x {length}m")
+        
+        # Créer le manager
+        manager = RoomLayoutManager()
+        manager.set_building_dimensions(width, length, floor_height)
+        
+        # Configuration des portes depuis les props (si disponibles)
+        door_width = getattr(props, 'door_default_width', 0.83)
+        door_height = getattr(props, 'door_default_height', 2.04)
+        pmr_mode = getattr(props, 'door_pmr_mode', False)
+        show_doors_open = getattr(props, 'door_show_open', False)
+        generate_handles = getattr(props, 'door_generate_handles', True)
+        generate_hinges = getattr(props, 'door_generate_hinges', True)
+        generate_frames = getattr(props, 'door_generate_frames', True)
+        generate_panels = getattr(props, 'door_generate_panels', True)
+        
+        manager.set_door_options(
+            default_width=door_width,
+            default_height=door_height,
+            generate_panels=generate_panels,
+            generate_handles=generate_handles,
+            generate_hinges=generate_hinges,
+            show_open=show_doors_open,
+            pmr_mode=pmr_mode
+        )
+        
+        # Déterminer les pièces à placer
+        mode = props.room_layout_mode if hasattr(props, 'room_layout_mode') else 'AUTO'
+        
+        if mode == 'AUTO':
+            # Construire la liste des pièces automatiquement
+            rooms_to_place = []
+            
+            # Pièces de base
+            num_rooms = getattr(props, 'num_rooms', 3)
+            include_kitchen = getattr(props, 'include_kitchen', True)
+            include_bathroom = getattr(props, 'include_bathroom', True)
+            num_bathrooms = getattr(props, 'num_bathrooms', 1)
+            
+            # Salon (toujours)
+            rooms_to_place.append(('SALON', 20.0))
+            
+            # Cuisine
+            if include_kitchen:
+                rooms_to_place.append(('CUISINE', 10.0))
+            
+            # Chambres
+            for i in range(num_rooms):
+                if i == 0:
+                    rooms_to_place.append(('CHAMBRE_PARENTALE', 14.0))
+                else:
+                    rooms_to_place.append(('CHAMBRE', 11.0))
+            
+            # Salles de bain
+            for i in range(num_bathrooms):
+                rooms_to_place.append(('SDB', 5.0))
+            
+            # WC séparé si plusieurs pièces
+            if num_rooms >= 2:
+                rooms_to_place.append(('WC', 1.5))
+            
+            # Entrée si assez grand
+            total_area = width * length
+            if total_area > 60:
+                rooms_to_place.append(('ENTREE', 4.0))
+            
+            print(f"[House] Mode AUTO: {len(rooms_to_place)} pièces")
+            
+        else:
+            # Mode preset - utiliser un preset prédéfini
+            preset_id = getattr(props, 'housing_preset', 'T3')
+            if preset_id in HOUSING_PRESETS:
+                rooms_to_place = HOUSING_PRESETS[preset_id].get_rooms_list()
+                print(f"[House] Mode PRESET: {preset_id} ({len(rooms_to_place)} pièces)")
             else:
-                obj.data.materials.append(partition_mat)
-
-        print(f"[House] ✅ {len(partition_objects)} cloisons créées")
-        return partition_objects
+                rooms_to_place = [('SALON', 20.0), ('CHAMBRE', 12.0), ('SDB', 5.0)]
+                print(f"[House] Preset inconnu, utilisation par défaut")
+        
+        # Définir les pièces
+        manager.set_rooms(rooms_to_place)
+        
+        # Générer le plan
+        success = manager.generate(floor=0)
+        
+        if not success:
+            print("[House] ⚠️ Échec de la génération du plan")
+            return []
+        
+        # Construire la géométrie
+        result = manager.build_geometry(
+            collection_name=collection.name,
+            floor_z=0.0
+        )
+        
+        # Statistiques
+        stats = manager.get_statistics()
+        print(f"[House] ✅ Distribution V2 créée:")
+        print(f"  - Pièces placées: {stats.get('placed_rooms', 0)}/{stats.get('total_rooms', 0)}")
+        print(f"  - Portes: {stats.get('total_doors', 0)} (int: {stats.get('interior_doors', 0)}, ext: {stats.get('exterior_doors', 0)})")
+        print(f"  - Score adjacence: {stats.get('adjacency_score', 0):.1f}")
+        
+        # Retourner les objets créés
+        return result.get('walls', []) if result else []
 
     def _generate_interior_wall_finishes(self, context, props, collection):
         """Génère les finitions murales intérieures (peinture, papier peint, etc.)
@@ -2444,4 +2509,3 @@ def register():
 def unregister():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
-    
