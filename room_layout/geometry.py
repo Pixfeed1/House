@@ -3,29 +3,30 @@
 """
 Génération de la géométrie des cloisons et portes pour Blender.
 
-Ce module transforme le plan logique (FloorPlan) en objets Blender :
+Ce module crée les meshes 3D pour:
 - Cloisons intérieures avec ouvertures pour les portes
-- Marqueurs de pièces (pour debug/visualisation)
-- Intégration avec le système de finitions existant
+- Cadres et vantaux de portes (via door_geometry.py)
+- Marqueurs de pièces pour le debug
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Dict, Set, TYPE_CHECKING
-from enum import Enum
+from typing import List, Optional, Dict, Tuple, Set, Any
 import math
 
-# Import Blender - sera disponible uniquement dans Blender
 try:
     import bpy
     import bmesh
-    from mathutils import Vector, Matrix
+    from mathutils import Vector
     HAS_BLENDER = True
 except ImportError:
     HAS_BLENDER = False
 
 from .base import (
-    Rectangle, Room, FloorPlan, HousePlan,
-    WallSide, DoorOpening, WindowOpening
+    Rectangle, Room, FloorPlan, WallSide,
+    DoorOpening, DoorType
+)
+from .door_geometry import (
+    DoorGeometryBuilder, DoorGeometryConfig, generate_door_geometry
 )
 
 
@@ -37,32 +38,69 @@ from .base import (
 class GeometryConfig:
     """Configuration pour la génération de géométrie."""
     
-    # Dimensions des cloisons
+    # Murs
     wall_thickness: float = 0.10         # Épaisseur cloisons intérieures
     wall_height: float = 2.50            # Hauteur sous plafond
     
-    # Portes
+    # Portes (dimensions par défaut, peuvent être override par DoorOpening)
     door_width: float = 0.83
     door_height: float = 2.04
-    door_frame_width: float = 0.05       # Largeur du cadre
-    door_frame_depth: float = 0.03       # Profondeur du cadre
-    
-    # Plinthes
-    baseboard_height: float = 0.08
-    baseboard_depth: float = 0.01
-    
-    # Matériaux par défaut
-    wall_material_name: str = "Wall_Interior"
-    door_frame_material_name: str = "Door_Frame"
     
     # Options de génération
-    generate_door_frames: bool = True
-    generate_baseboards: bool = False    # Peut être ajouté plus tard
-    merge_coplanar_walls: bool = True    # Fusionner les murs alignés
+    generate_door_frames: bool = True    # Générer les cadres
+    generate_door_panels: bool = True    # Générer les vantaux
+    generate_door_handles: bool = True   # Générer les poignées
+    generate_door_hinges: bool = True    # Générer les charnières
+    show_doors_open: bool = False        # Montrer les portes ouvertes
+    
+    # Fusion des murs
+    merge_coplanar_walls: bool = True
+    
+    # Matériaux
+    wall_material_name: str = "Wall_Interior"
+    
+    # Configuration détaillée des portes
+    door_geometry_config: Optional[DoorGeometryConfig] = None
+    
+    def get_door_config(self) -> DoorGeometryConfig:
+        """Retourne la config de géométrie des portes."""
+        if self.door_geometry_config:
+            return self.door_geometry_config
+        
+        # Créer une config par défaut basée sur nos options
+        return DoorGeometryConfig(
+            generate_frame=self.generate_door_frames,
+            generate_panel=self.generate_door_panels,
+            generate_handles=self.generate_door_handles,
+            generate_hinges=self.generate_door_hinges,
+            preview_open_angle=30.0 if self.show_doors_open else 0.0
+        )
 
 
 # =============================================================================
-# REPRÉSENTATION DES SEGMENTS DE MUR
+# OUVERTURE DANS UN MUR
+# =============================================================================
+
+@dataclass
+class WallOpening:
+    """
+    Représente une ouverture dans un mur (porte ou fenêtre).
+    """
+    position: float          # Position relative depuis le début du mur
+    width: float
+    height: float
+    base_height: float = 0.0 # Hauteur depuis le sol (0 pour portes)
+    
+    # Référence à la porte source
+    door_id: Optional[str] = None
+    door: Optional[DoorOpening] = None
+    
+    # Type d'ouverture
+    opening_type: str = "door"  # "door", "window", "pass_through"
+
+
+# =============================================================================
+# SEGMENT DE MUR
 # =============================================================================
 
 @dataclass
@@ -84,13 +122,15 @@ class WallSegment:
     thickness: float
     height: float
     
-    # Ouvertures (position relative depuis start, largeur, hauteur, hauteur_base)
-    openings: List[Tuple[float, float, float, float]] = field(default_factory=list)
+    # Ouvertures
+    openings: List[WallOpening] = field(default_factory=list)
     
-    # Métadonnées
-    room1_id: Optional[str] = None   # Pièce d'un côté
-    room2_id: Optional[str] = None   # Pièce de l'autre côté
-    is_exterior: bool = False         # Mur extérieur (pour référence)
+    # Métadonnées des pièces adjacentes
+    room1_id: Optional[str] = None
+    room2_id: Optional[str] = None
+    
+    # Flags
+    is_exterior: bool = False
     
     @property
     def length(self) -> float:
@@ -126,15 +166,32 @@ class WallSegment:
         """Le segment est-il vertical?"""
         return abs(self.end_x - self.start_x) < 0.01
     
-    def add_door_opening(
-        self, 
-        position: float, 
-        width: float, 
-        height: float,
-        base_height: float = 0.0
-    ) -> None:
-        """Ajoute une ouverture de porte."""
-        self.openings.append((position, width, height, base_height))
+    @property
+    def start_point(self) -> Tuple[float, float]:
+        """Point de départ."""
+        return (self.start_x, self.start_y)
+    
+    @property
+    def end_point(self) -> Tuple[float, float]:
+        """Point de fin."""
+        return (self.end_x, self.end_y)
+    
+    def add_door_opening(self, door: DoorOpening, relative_position: float) -> None:
+        """Ajoute une ouverture de porte avec toutes les infos."""
+        opening = WallOpening(
+            position=relative_position,
+            width=door.width,
+            height=door.height,
+            base_height=0.0,
+            door_id=door.id,
+            door=door,
+            opening_type="door"
+        )
+        self.openings.append(opening)
+    
+    def get_doors(self) -> List[WallOpening]:
+        """Retourne uniquement les ouvertures de type porte."""
+        return [o for o in self.openings if o.opening_type == "door"]
     
     def get_solid_segments(self) -> List[Tuple[float, float]]:
         """
@@ -147,29 +204,52 @@ class WallSegment:
             return [(0, self.length)]
         
         # Trier les ouvertures par position
-        sorted_openings = sorted(self.openings, key=lambda o: o[0])
+        sorted_openings = sorted(self.openings, key=lambda o: o.position)
         
         segments = []
         current_pos = 0
         
-        for pos, width, height, base in sorted_openings:
-            if pos > current_pos:
-                segments.append((current_pos, pos))
-            current_pos = pos + width
+        for opening in sorted_openings:
+            if opening.position > current_pos:
+                segments.append((current_pos, opening.position))
+            current_pos = opening.position + opening.width
         
         if current_pos < self.length:
             segments.append((current_pos, self.length))
         
         return segments
+    
+    def validate_openings(self) -> Tuple[bool, List[str]]:
+        """Vérifie qu'il n'y a pas de chevauchement d'ouvertures."""
+        warnings = []
+        sorted_openings = sorted(self.openings, key=lambda o: o.position)
+        
+        for i in range(len(sorted_openings) - 1):
+            current = sorted_openings[i]
+            next_op = sorted_openings[i + 1]
+            
+            current_end = current.position + current.width
+            gap = next_op.position - current_end
+            
+            if gap < 0:
+                warnings.append(
+                    f"Chevauchement d'ouvertures: {current.door_id} et {next_op.door_id}"
+                )
+            elif gap < 0.10:
+                warnings.append(
+                    f"Ouvertures trop proches ({gap:.2f}m)"
+                )
+        
+        return len(warnings) == 0, warnings
 
 
 # =============================================================================
-# GÉNÉRATEUR DE MURS
+# GÉNÉRATEUR DE SEGMENTS DE MURS
 # =============================================================================
 
 class WallGeometryGenerator:
     """
-    Génère la géométrie des cloisons intérieures.
+    Analyse un FloorPlan et génère les segments de murs nécessaires.
     """
     
     def __init__(self, config: Optional[GeometryConfig] = None):
@@ -183,7 +263,7 @@ class WallGeometryGenerator:
             Liste de WallSegment représentant toutes les cloisons
         """
         segments: List[WallSegment] = []
-        processed_edges: Set[Tuple[float, float, float, float]] = set()
+        processed_edges: Set[Tuple[str, str]] = set()
         
         # Pour chaque paire de pièces adjacentes
         for room in floor_plan.placed_rooms:
@@ -194,20 +274,18 @@ class WallGeometryGenerator:
                 if not other.bounds:
                     continue
                 
+                # Éviter les doublons - clé basée sur les IDs des pièces triés
+                pair = tuple(sorted([room.id, other.id]))
+                if pair in processed_edges:
+                    continue
+                processed_edges.add(pair)
+                
                 # Obtenir le bord partagé
                 shared = room.bounds.get_shared_edge(other.bounds)
                 if not shared:
                     continue
                 
                 side, position, start, end = shared
-                
-                # Éviter les doublons - clé unique basée sur les IDs des pièces
-                room_ids = tuple(sorted([room.id, other.id]))
-                edge_key = (round(position, 3), round(start, 3), round(end, 3), room_ids)
-                
-                if edge_key in processed_edges:
-                    continue
-                processed_edges.add(edge_key)
                 
                 # Créer le segment de mur
                 segment = self._create_wall_segment(
@@ -220,12 +298,7 @@ class WallGeometryGenerator:
                     if door.connects(room.id) and door.connects(other.id):
                         # Calculer la position relative de la porte
                         door_pos_rel = door.position - start
-                        segment.add_door_opening(
-                            door_pos_rel,
-                            door.width,
-                            door.height,
-                            0.0  # Portes au sol
-                        )
+                        segment.add_door_opening(door, door_pos_rel)
                 
                 segments.append(segment)
         
@@ -245,8 +318,6 @@ class WallGeometryGenerator:
         room2_id: str
     ) -> WallSegment:
         """Crée un segment de mur à partir d'un bord partagé."""
-        
-        half_thick = self.config.wall_thickness / 2
         
         if side in [WallSide.NORTH, WallSide.SOUTH]:
             # Mur horizontal (Y constant)
@@ -330,7 +401,27 @@ class WallGeometryGenerator:
                 gap = next_seg.start_y - current.end_y
             
             if gap < 0.01:  # Segments contigus
-                # Fusionner
+                # Calculer l'offset pour les ouvertures du segment suivant
+                if is_horizontal:
+                    offset = next_seg.start_x - current.start_x
+                else:
+                    offset = next_seg.start_y - current.start_y
+                
+                # Fusionner les ouvertures avec positions ajustées
+                new_openings = list(current.openings)
+                for op in next_seg.openings:
+                    new_op = WallOpening(
+                        position=op.position + offset,
+                        width=op.width,
+                        height=op.height,
+                        base_height=op.base_height,
+                        door_id=op.door_id,
+                        door=op.door,
+                        opening_type=op.opening_type
+                    )
+                    new_openings.append(new_op)
+                
+                # Créer le segment fusionné
                 if is_horizontal:
                     current = WallSegment(
                         start_x=current.start_x,
@@ -339,10 +430,9 @@ class WallGeometryGenerator:
                         end_y=current.end_y,
                         thickness=current.thickness,
                         height=current.height,
-                        openings=current.openings + [
-                            (o[0] + (next_seg.start_x - current.start_x), o[1], o[2], o[3])
-                            for o in next_seg.openings
-                        ]
+                        openings=new_openings,
+                        room1_id=current.room1_id,
+                        room2_id=current.room2_id
                     )
                 else:
                     current = WallSegment(
@@ -352,10 +442,9 @@ class WallGeometryGenerator:
                         end_y=next_seg.end_y,
                         thickness=current.thickness,
                         height=current.height,
-                        openings=current.openings + [
-                            (o[0] + (next_seg.start_y - current.start_y), o[1], o[2], o[3])
-                            for o in next_seg.openings
-                        ]
+                        openings=new_openings,
+                        room1_id=current.room1_id,
+                        room2_id=current.room2_id
                     )
             else:
                 merged.append(current)
@@ -366,18 +455,19 @@ class WallGeometryGenerator:
 
 
 # =============================================================================
-# GÉNÉRATION BLENDER
+# CONSTRUCTEUR DE MESHES BLENDER
 # =============================================================================
 
 if HAS_BLENDER:
-    
+
     class BlenderWallBuilder:
         """
-        Construit les objets Blender pour les cloisons.
+        Construit les meshes Blender pour les segments de murs.
         """
         
         def __init__(self, config: Optional[GeometryConfig] = None):
             self.config = config or GeometryConfig()
+            self.door_builder = DoorGeometryBuilder(self.config.get_door_config())
         
         def build_walls(
             self,
@@ -386,37 +476,31 @@ if HAS_BLENDER:
             floor_z: float = 0.0
         ) -> List[bpy.types.Object]:
             """
-            Construit les meshes de murs dans Blender.
+            Construit tous les murs et portes.
             
-            Args:
-                segments: Liste des segments de murs
-                collection: Collection Blender où ajouter les objets
-                floor_z: Hauteur Z du plancher
-                
             Returns:
                 Liste des objets créés
             """
             objects = []
             
             for i, segment in enumerate(segments):
-                obj = self._create_wall_mesh(segment, floor_z, f"Wall_{i:03d}")
+                # Créer le mesh du mur (avec trous pour les portes)
+                wall_obj = self._create_wall_mesh(segment, floor_z, f"Wall_{i:03d}")
+                if wall_obj:
+                    collection.objects.link(wall_obj)
+                    objects.append(wall_obj)
+                    self._apply_material(wall_obj, self.config.wall_material_name)
                 
-                if obj:
-                    collection.objects.link(obj)
-                    objects.append(obj)
-                    
-                    # Appliquer le matériau
-                    self._apply_material(obj, self.config.wall_material_name)
-                    
-                    # Générer le cadre de porte si demandé
-                    if self.config.generate_door_frames:
-                        for opening in segment.openings:
-                            frame = self._create_door_frame(
-                                segment, opening, floor_z, f"DoorFrame_{i:03d}"
-                            )
-                            if frame:
-                                collection.objects.link(frame)
-                                objects.append(frame)
+                # Créer les portes
+                for opening in segment.get_doors():
+                    if opening.door:
+                        door_objects = self._create_door(
+                            opening.door,
+                            segment,
+                            collection,
+                            floor_z
+                        )
+                        objects.extend(door_objects.values())
             
             return objects
         
@@ -426,67 +510,53 @@ if HAS_BLENDER:
             floor_z: float,
             name: str
         ) -> Optional[bpy.types.Object]:
-            """Crée le mesh d'un segment de mur."""
+            """Crée le mesh d'un segment de mur avec ouvertures."""
             
             mesh = bpy.data.meshes.new(name)
             bm = bmesh.new()
             
             try:
+                # Direction et normale du mur
                 dx, dy = segment.direction
                 nx, ny = segment.normal
                 
                 half_thick = segment.thickness / 2
                 
-                # Pour chaque segment solide
-                solid_segments = segment.get_solid_segments()
+                # Obtenir les parties solides du mur
+                solid_parts = segment.get_solid_segments()
                 
-                for seg_start, seg_end in solid_segments:
-                    # Calculer les 4 coins au sol
-                    p1_x = segment.start_x + dx * seg_start - nx * half_thick
-                    p1_y = segment.start_y + dy * seg_start - ny * half_thick
+                for start_pos, end_pos in solid_parts:
+                    # Calculer les positions 3D
+                    s_x = segment.start_x + dx * start_pos
+                    s_y = segment.start_y + dy * start_pos
+                    e_x = segment.start_x + dx * end_pos
+                    e_y = segment.start_y + dy * end_pos
                     
-                    p2_x = segment.start_x + dx * seg_end - nx * half_thick
-                    p2_y = segment.start_y + dy * seg_end - ny * half_thick
+                    # Les 8 coins du bloc de mur
+                    v = [
+                        bm.verts.new((s_x - nx * half_thick, s_y - ny * half_thick, floor_z)),
+                        bm.verts.new((e_x - nx * half_thick, e_y - ny * half_thick, floor_z)),
+                        bm.verts.new((e_x + nx * half_thick, e_y + ny * half_thick, floor_z)),
+                        bm.verts.new((s_x + nx * half_thick, s_y + ny * half_thick, floor_z)),
+                        bm.verts.new((s_x - nx * half_thick, s_y - ny * half_thick, floor_z + segment.height)),
+                        bm.verts.new((e_x - nx * half_thick, e_y - ny * half_thick, floor_z + segment.height)),
+                        bm.verts.new((e_x + nx * half_thick, e_y + ny * half_thick, floor_z + segment.height)),
+                        bm.verts.new((s_x + nx * half_thick, s_y + ny * half_thick, floor_z + segment.height)),
+                    ]
                     
-                    p3_x = segment.start_x + dx * seg_end + nx * half_thick
-                    p3_y = segment.start_y + dy * seg_end + ny * half_thick
-                    
-                    p4_x = segment.start_x + dx * seg_start + nx * half_thick
-                    p4_y = segment.start_y + dy * seg_start + ny * half_thick
-                    
-                    # Créer les 8 vertices (4 en bas, 4 en haut)
-                    v1 = bm.verts.new((p1_x, p1_y, floor_z))
-                    v2 = bm.verts.new((p2_x, p2_y, floor_z))
-                    v3 = bm.verts.new((p3_x, p3_y, floor_z))
-                    v4 = bm.verts.new((p4_x, p4_y, floor_z))
-                    
-                    v5 = bm.verts.new((p1_x, p1_y, floor_z + segment.height))
-                    v6 = bm.verts.new((p2_x, p2_y, floor_z + segment.height))
-                    v7 = bm.verts.new((p3_x, p3_y, floor_z + segment.height))
-                    v8 = bm.verts.new((p4_x, p4_y, floor_z + segment.height))
-                    
-                    # Créer les faces
-                    # Face avant
-                    bm.faces.new([v1, v2, v6, v5])
-                    # Face arrière
-                    bm.faces.new([v3, v4, v8, v7])
-                    # Face gauche
-                    bm.faces.new([v4, v1, v5, v8])
-                    # Face droite
-                    bm.faces.new([v2, v3, v7, v6])
-                    # Face dessus
-                    bm.faces.new([v5, v6, v7, v8])
-                    # Face dessous (optionnel)
-                    bm.faces.new([v4, v3, v2, v1])
+                    # Créer les 6 faces
+                    bm.faces.new([v[0], v[1], v[5], v[4]])  # Face avant
+                    bm.faces.new([v[2], v[3], v[7], v[6]])  # Face arrière
+                    bm.faces.new([v[3], v[0], v[4], v[7]])  # Face gauche
+                    bm.faces.new([v[1], v[2], v[6], v[5]])  # Face droite
+                    bm.faces.new([v[4], v[5], v[6], v[7]])  # Dessus
+                    bm.faces.new([v[3], v[2], v[1], v[0]])  # Dessous
                 
                 # Créer les parties au-dessus des portes
-                for pos, width, height, base in segment.openings:
-                    if height < segment.height:
+                for opening in segment.openings:
+                    if opening.height < segment.height:
                         self._add_wall_above_opening(
-                            bm, segment, pos, width, 
-                            floor_z + height, 
-                            segment.height - height,
-                            half_thick
+                            bm, segment, opening, floor_z
                         )
                 
                 bm.to_mesh(mesh)
@@ -494,165 +564,78 @@ if HAS_BLENDER:
             finally:
                 bm.free()
             
-            obj = bpy.data.objects.new(name, mesh)
-            return obj
+            return bpy.data.objects.new(name, mesh)
         
         def _add_wall_above_opening(
             self,
             bm: bmesh.types.BMesh,
             segment: WallSegment,
-            pos: float,
-            width: float,
-            z_start: float,
-            height: float,
-            half_thick: float
+            opening: WallOpening,
+            floor_z: float
         ) -> None:
             """Ajoute la partie de mur au-dessus d'une ouverture."""
             
             dx, dy = segment.direction
             nx, ny = segment.normal
+            half_thick = segment.thickness / 2
             
-            seg_start = pos
-            seg_end = pos + width
+            # Position de l'ouverture
+            start_pos = opening.position
+            end_pos = opening.position + opening.width
             
-            # Coins du rectangle au-dessus de l'ouverture
-            p1_x = segment.start_x + dx * seg_start - nx * half_thick
-            p1_y = segment.start_y + dy * seg_start - ny * half_thick
+            s_x = segment.start_x + dx * start_pos
+            s_y = segment.start_y + dy * start_pos
+            e_x = segment.start_x + dx * end_pos
+            e_y = segment.start_y + dy * end_pos
             
-            p2_x = segment.start_x + dx * seg_end - nx * half_thick
-            p2_y = segment.start_y + dy * seg_end - ny * half_thick
+            z_bottom = floor_z + opening.base_height + opening.height
+            z_top = floor_z + segment.height
             
-            p3_x = segment.start_x + dx * seg_end + nx * half_thick
-            p3_y = segment.start_y + dy * seg_end + ny * half_thick
+            if z_bottom >= z_top:
+                return
             
-            p4_x = segment.start_x + dx * seg_start + nx * half_thick
-            p4_y = segment.start_y + dy * seg_start + ny * half_thick
-            
-            v1 = bm.verts.new((p1_x, p1_y, z_start))
-            v2 = bm.verts.new((p2_x, p2_y, z_start))
-            v3 = bm.verts.new((p3_x, p3_y, z_start))
-            v4 = bm.verts.new((p4_x, p4_y, z_start))
-            
-            v5 = bm.verts.new((p1_x, p1_y, z_start + height))
-            v6 = bm.verts.new((p2_x, p2_y, z_start + height))
-            v7 = bm.verts.new((p3_x, p3_y, z_start + height))
-            v8 = bm.verts.new((p4_x, p4_y, z_start + height))
+            # Les 8 coins
+            v = [
+                bm.verts.new((s_x - nx * half_thick, s_y - ny * half_thick, z_bottom)),
+                bm.verts.new((e_x - nx * half_thick, e_y - ny * half_thick, z_bottom)),
+                bm.verts.new((e_x + nx * half_thick, e_y + ny * half_thick, z_bottom)),
+                bm.verts.new((s_x + nx * half_thick, s_y + ny * half_thick, z_bottom)),
+                bm.verts.new((s_x - nx * half_thick, s_y - ny * half_thick, z_top)),
+                bm.verts.new((e_x - nx * half_thick, e_y - ny * half_thick, z_top)),
+                bm.verts.new((e_x + nx * half_thick, e_y + ny * half_thick, z_top)),
+                bm.verts.new((s_x + nx * half_thick, s_y + ny * half_thick, z_top)),
+            ]
             
             # Faces
-            bm.faces.new([v1, v2, v6, v5])
-            bm.faces.new([v3, v4, v8, v7])
-            bm.faces.new([v4, v1, v5, v8])
-            bm.faces.new([v2, v3, v7, v6])
-            bm.faces.new([v5, v6, v7, v8])
-            bm.faces.new([v4, v3, v2, v1])
+            bm.faces.new([v[0], v[1], v[5], v[4]])
+            bm.faces.new([v[2], v[3], v[7], v[6]])
+            bm.faces.new([v[3], v[0], v[4], v[7]])
+            bm.faces.new([v[1], v[2], v[6], v[5]])
+            bm.faces.new([v[4], v[5], v[6], v[7]])
+            bm.faces.new([v[3], v[2], v[1], v[0]])
         
-        def _create_door_frame(
+        def _create_door(
             self,
+            door: DoorOpening,
             segment: WallSegment,
-            opening: Tuple[float, float, float, float],
-            floor_z: float,
-            name: str
-        ) -> Optional[bpy.types.Object]:
-            """Crée le cadre d'une porte."""
+            collection: bpy.types.Collection,
+            floor_z: float
+        ) -> Dict[str, bpy.types.Object]:
+            """Crée tous les éléments d'une porte."""
             
-            pos, width, height, base = opening
-            
-            mesh = bpy.data.meshes.new(name)
-            bm = bmesh.new()
-            
-            try:
-                dx, dy = segment.direction
-                nx, ny = segment.normal
-                
-                frame_w = self.config.door_frame_width
-                frame_d = self.config.door_frame_depth
-                half_thick = segment.thickness / 2
-                
-                # Montant gauche
-                self._add_frame_piece(
-                    bm, segment, 
-                    pos - frame_w, pos,
-                    floor_z + base, height,
-                    frame_d, half_thick
-                )
-                
-                # Montant droit
-                self._add_frame_piece(
-                    bm, segment,
-                    pos + width, pos + width + frame_w,
-                    floor_z + base, height,
-                    frame_d, half_thick
-                )
-                
-                # Traverse haute
-                self._add_frame_piece(
-                    bm, segment,
-                    pos, pos + width,
-                    floor_z + base + height - frame_w, frame_w,
-                    frame_d, half_thick
-                )
-                
-                bm.to_mesh(mesh)
-                
-            finally:
-                bm.free()
-            
-            obj = bpy.data.objects.new(name, mesh)
-            self._apply_material(obj, self.config.door_frame_material_name)
-            
-            return obj
-        
-        def _add_frame_piece(
-            self,
-            bm: bmesh.types.BMesh,
-            segment: WallSegment,
-            start_pos: float,
-            end_pos: float,
-            z_start: float,
-            height: float,
-            depth: float,
-            half_thick: float
-        ) -> None:
-            """Ajoute un élément de cadre de porte."""
-            
-            dx, dy = segment.direction
-            nx, ny = segment.normal
-            
-            # Décaler vers l'extérieur du mur
-            offset = half_thick + depth / 2
-            
-            for sign in [-1, 1]:  # Des deux côtés du mur
-                p1_x = segment.start_x + dx * start_pos + nx * sign * offset - nx * depth/2
-                p1_y = segment.start_y + dy * start_pos + ny * sign * offset - ny * depth/2
-                
-                p2_x = segment.start_x + dx * end_pos + nx * sign * offset - nx * depth/2
-                p2_y = segment.start_y + dy * end_pos + ny * sign * offset - ny * depth/2
-                
-                p3_x = segment.start_x + dx * end_pos + nx * sign * offset + nx * depth/2
-                p3_y = segment.start_y + dy * end_pos + ny * sign * offset + ny * depth/2
-                
-                p4_x = segment.start_x + dx * start_pos + nx * sign * offset + nx * depth/2
-                p4_y = segment.start_y + dy * start_pos + ny * sign * offset + ny * depth/2
-                
-                v1 = bm.verts.new((p1_x, p1_y, z_start))
-                v2 = bm.verts.new((p2_x, p2_y, z_start))
-                v3 = bm.verts.new((p3_x, p3_y, z_start))
-                v4 = bm.verts.new((p4_x, p4_y, z_start))
-                
-                v5 = bm.verts.new((p1_x, p1_y, z_start + height))
-                v6 = bm.verts.new((p2_x, p2_y, z_start + height))
-                v7 = bm.verts.new((p3_x, p3_y, z_start + height))
-                v8 = bm.verts.new((p4_x, p4_y, z_start + height))
-                
-                bm.faces.new([v1, v2, v6, v5])
-                bm.faces.new([v3, v4, v8, v7])
-                bm.faces.new([v4, v1, v5, v8])
-                bm.faces.new([v2, v3, v7, v6])
-                bm.faces.new([v5, v6, v7, v8])
+            return self.door_builder.build_door(
+                door=door,
+                wall_thickness=segment.thickness,
+                wall_start=segment.start_point,
+                wall_direction=segment.direction,
+                collection=collection,
+                floor_z=floor_z,
+                show_open=self.config.show_doors_open
+            )
         
         def _apply_material(
-            self, 
-            obj: bpy.types.Object, 
+            self,
+            obj: bpy.types.Object,
             material_name: str
         ) -> None:
             """Applique un matériau à un objet."""
@@ -663,33 +646,32 @@ if HAS_BLENDER:
                 mat = bpy.data.materials.new(name=material_name)
                 mat.use_nodes = True
                 
-                # Configuration basique
-                if mat.node_tree:
-                    bsdf = mat.node_tree.nodes.get("Principled BSDF")
-                    if bsdf:
-                        if "Wall" in material_name:
-                            bsdf.inputs["Base Color"].default_value = (0.9, 0.9, 0.88, 1)
-                        elif "Door" in material_name:
-                            bsdf.inputs["Base Color"].default_value = (0.4, 0.25, 0.15, 1)
+                bsdf = mat.node_tree.nodes.get("Principled BSDF")
+                if bsdf:
+                    bsdf.inputs["Base Color"].default_value = (0.9, 0.9, 0.88, 1)
+                    bsdf.inputs["Roughness"].default_value = 0.5
             
             if obj.data.materials:
                 obj.data.materials[0] = mat
             else:
                 obj.data.materials.append(mat)
-    
-    
+
+
+    # =========================================================================
+    # MARQUEURS DE PIÈCES (DEBUG)
+    # =========================================================================
+
     class RoomMarkerBuilder:
-        """
-        Crée des marqueurs visuels pour les pièces (debug).
-        """
+        """Crée des marqueurs visuels pour identifier les pièces."""
         
         @staticmethod
         def create_room_markers(
             floor_plan: FloorPlan,
             collection: bpy.types.Collection,
-            floor_z: float = 0.0
+            floor_z: float = 0.0,
+            text_size: float = 0.3
         ) -> List[bpy.types.Object]:
-            """Crée des empties avec le nom des pièces au centre."""
+            """Crée des textes pour identifier chaque pièce."""
             
             markers = []
             
@@ -697,62 +679,22 @@ if HAS_BLENDER:
                 if not room.bounds:
                     continue
                 
-                cx, cy = room.bounds.center
+                # Créer un empty avec le nom de la pièce
+                center_x, center_y = room.bounds.center
                 
-                empty = bpy.data.objects.new(f"Room_{room.id}", None)
+                empty = bpy.data.objects.new(f"Marker_{room.id}", None)
                 empty.empty_display_type = 'PLAIN_AXES'
                 empty.empty_display_size = 0.5
-                empty.location = (cx, cy, floor_z + 0.1)
+                empty.location = (center_x, center_y, floor_z + 0.1)
                 
-                # Ajouter une propriété custom avec les infos
-                empty["room_type"] = room.room_type_id
-                empty["room_area"] = room.area
+                # Ajouter une propriété custom pour le nom
                 empty["room_name"] = room.name
+                empty["room_area"] = f"{room.area:.1f}m²"
                 
                 collection.objects.link(empty)
                 markers.append(empty)
             
             return markers
-        
-        @staticmethod
-        def create_floor_plan_outline(
-            floor_plan: FloorPlan,
-            collection: bpy.types.Collection,
-            floor_z: float = 0.01
-        ) -> Optional[bpy.types.Object]:
-            """Crée un outline 2D du plan au sol (pour visualisation)."""
-            
-            mesh = bpy.data.meshes.new("FloorPlan_Outline")
-            bm = bmesh.new()
-            
-            try:
-                for room in floor_plan.placed_rooms:
-                    if not room.bounds:
-                        continue
-                    
-                    b = room.bounds
-                    
-                    # Créer les 4 vertices du rectangle
-                    v1 = bm.verts.new((b.x_min, b.y_min, floor_z))
-                    v2 = bm.verts.new((b.x_max, b.y_min, floor_z))
-                    v3 = bm.verts.new((b.x_max, b.y_max, floor_z))
-                    v4 = bm.verts.new((b.x_min, b.y_max, floor_z))
-                    
-                    # Créer les edges (pas de face)
-                    bm.edges.new([v1, v2])
-                    bm.edges.new([v2, v3])
-                    bm.edges.new([v3, v4])
-                    bm.edges.new([v4, v1])
-                
-                bm.to_mesh(mesh)
-                
-            finally:
-                bm.free()
-            
-            obj = bpy.data.objects.new("FloorPlan_Outline", mesh)
-            collection.objects.link(obj)
-            
-            return obj
 
 
 # =============================================================================
@@ -764,12 +706,12 @@ def generate_interior_walls(
     collection_name: str = "Interior_Walls",
     floor_z: float = 0.0,
     config: Optional[GeometryConfig] = None
-) -> Dict[str, any]:
+) -> Dict[str, Any]:
     """
-    Génère toutes les cloisons intérieures pour un plan d'étage.
+    Génère toutes les cloisons intérieures et portes pour un plan d'étage.
     
     Args:
-        floor_plan: Plan d'étage avec pièces placées
+        floor_plan: Plan d'étage avec pièces et portes
         collection_name: Nom de la collection Blender
         floor_z: Hauteur Z du plancher
         config: Configuration de géométrie
@@ -783,7 +725,6 @@ def generate_interior_walls(
     cfg = config or GeometryConfig()
     
     # Créer une sous-collection dédiée aux cloisons intérieures
-    # pour éviter de supprimer les murs extérieurs
     partitions_coll_name = f"{collection_name}_Interior_Partitions"
     
     # Récupérer la collection parent
@@ -816,12 +757,15 @@ def generate_interior_walls(
     # Créer les marqueurs de pièces (debug)
     markers = RoomMarkerBuilder.create_room_markers(floor_plan, collection, floor_z)
     
+    # Compter les portes
+    num_doors = sum(len(s.get_doors()) for s in segments)
+    
     return {
         "collection": collection,
         "walls": wall_objects,
         "markers": markers,
         "num_segments": len(segments),
-        "num_doors": sum(len(s.openings) for s in segments)
+        "num_doors": num_doors
     }
 
 
@@ -849,11 +793,12 @@ def get_partition_data_for_floor_plan(floor_plan: FloorPlan) -> List[Dict]:
             "is_horizontal": seg.is_horizontal,
             "openings": [
                 {
-                    "position": o[0],
-                    "width": o[1],
-                    "height": o[2],
-                    "base_height": o[3],
-                    "type": "door"
+                    "position": o.position,
+                    "width": o.width,
+                    "height": o.height,
+                    "base_height": o.base_height,
+                    "type": o.opening_type,
+                    "door_id": o.door_id
                 }
                 for o in seg.openings
             ],
