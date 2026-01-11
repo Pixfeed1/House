@@ -351,47 +351,94 @@ class ParquetMassif(FloorTypeBase):
         return obj
 
     def _clip_to_floor(self, obj, width, length, height):
-        """Coupe le parquet aux dimensions exactes du sol"""
+        """Coupe le parquet aux dimensions exactes du sol - Version robuste sans bpy.ops"""
 
-        # Créer un cube de clipping
-        bpy.ops.mesh.primitive_cube_add(size=1)
-        cutter = bpy.context.active_object
-        cutter.name = "Parquet_Cutter_Temp"
-        # ✅ FIX: Le cutter doit couvrir de Z=0 à Z=THICKNESS*2 pour capturer tout le parquet
-        cutter.scale = (width, length, self.THICKNESS * 4)  # Plus large pour être sûr
-        cutter.location = (width / 2, length / 2, self.THICKNESS)  # Centré sur l'épaisseur
-        bpy.ops.object.transform_apply(scale=True, location=True)
+        # ✅ CORRECTION: Créer le cutter directement avec bmesh (pas de bpy.ops)
+        cutter_mesh = bpy.data.meshes.new("Parquet_Cutter_Mesh")
+        cutter_bm = bmesh.new()
 
-        # Lier l'objet parquet à la scène pour appliquer le Boolean
-        bpy.context.collection.objects.link(obj)
+        try:
+            # Créer un cube de clipping aux dimensions exactes
+            # Le cube va de (0,0,-THICKNESS) à (width, length, THICKNESS*3)
+            half_height = self.THICKNESS * 2
+            verts = [
+                cutter_bm.verts.new((0, 0, -self.THICKNESS)),
+                cutter_bm.verts.new((width, 0, -self.THICKNESS)),
+                cutter_bm.verts.new((width, length, -self.THICKNESS)),
+                cutter_bm.verts.new((0, length, -self.THICKNESS)),
+                cutter_bm.verts.new((0, 0, half_height)),
+                cutter_bm.verts.new((width, 0, half_height)),
+                cutter_bm.verts.new((width, length, half_height)),
+                cutter_bm.verts.new((0, length, half_height)),
+            ]
+            cutter_bm.verts.ensure_lookup_table()
 
-        # ✅ FIX: L'objet doit être SÉLECTIONNÉ ET ACTIF pour modifier_apply
-        bpy.ops.object.select_all(action='DESELECT')
-        obj.select_set(True)
+            # Créer les 6 faces du cube
+            faces = [
+                (0, 1, 2, 3),  # Bottom
+                (4, 7, 6, 5),  # Top
+                (0, 4, 5, 1),  # Front
+                (2, 6, 7, 3),  # Back
+                (0, 3, 7, 4),  # Left
+                (1, 5, 6, 2),  # Right
+            ]
+            for face_indices in faces:
+                cutter_bm.faces.new([verts[i] for i in face_indices])
+
+            cutter_bm.to_mesh(cutter_mesh)
+        finally:
+            cutter_bm.free()
+
+        cutter = bpy.data.objects.new("Parquet_Cutter_Temp", cutter_mesh)
+
+        # ✅ CORRECTION: Utiliser la collection de la scène principale
+        scene_collection = bpy.context.scene.collection
+
+        # Lier les objets à la collection de la scène
+        scene_collection.objects.link(obj)
+        scene_collection.objects.link(cutter)
+
+        # ✅ CORRECTION: S'assurer que l'objet est actif et sélectionné
         bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        cutter.select_set(False)
 
         # Appliquer Boolean (EXACT solver pour meilleure précision)
         bool_mod = obj.modifiers.new("Boolean", 'BOOLEAN')
         bool_mod.operation = 'INTERSECT'
         bool_mod.object = cutter
-        bool_mod.solver = 'EXACT'  # Plus précis que FAST, évite l'effet "tétris"
+        bool_mod.solver = 'EXACT'
 
-        # Appliquer le modificateur avec gestion d'erreur
+        # Mettre à jour le view_layer
         bpy.context.view_layer.update()
+
+        # Appliquer le modificateur
         try:
+            # Méthode 1: Essayer avec bpy.ops (nécessite contexte correct)
             bpy.ops.object.modifier_apply(modifier="Boolean")
             print(f"[Parquet] ✅ Boolean appliqué avec succès")
         except Exception as e:
-            print(f"[Parquet] ⚠️ Erreur Boolean (ignorée): {e}")
-            # Supprimer le modifier si l'application échoue
-            if "Boolean" in obj.modifiers:
-                obj.modifiers.remove(obj.modifiers["Boolean"])
+            print(f"[Parquet] ⚠️ Erreur Boolean bpy.ops: {e}")
+            # Méthode 2: Appliquer manuellement en utilisant le depsgraph
+            try:
+                depsgraph = bpy.context.evaluated_depsgraph_get()
+                obj_eval = obj.evaluated_get(depsgraph)
+                new_mesh = bpy.data.meshes.new_from_object(obj_eval)
+                obj.data = new_mesh
+                obj.modifiers.remove(bool_mod)
+                print(f"[Parquet] ✅ Boolean appliqué via depsgraph")
+            except Exception as e2:
+                print(f"[Parquet] ⚠️ Erreur Boolean fallback: {e2}")
+                if "Boolean" in obj.modifiers:
+                    obj.modifiers.remove(obj.modifiers["Boolean"])
 
         # Supprimer le cutter
+        scene_collection.objects.unlink(cutter)
         bpy.data.objects.remove(cutter)
+        bpy.data.meshes.remove(cutter_mesh)
 
-        # Retirer de la scène (sera réajouté par le système principal)
-        bpy.context.collection.objects.unlink(obj)
+        # Retirer l'objet parquet de la scène (sera réajouté par le système principal)
+        scene_collection.objects.unlink(obj)
 
     def _apply_material(self, obj):
         """Matériau bois selon l'essence choisie (OAK, WALNUT, MAPLE, CHERRY, ASH)"""
@@ -464,40 +511,75 @@ class ParquetContrecolle(FloorTypeBase):
         return obj
 
     def _clip_to_floor(self, obj, width, length, height):
-        """Coupe le parquet aux dimensions exactes du sol"""
+        """Coupe le parquet aux dimensions exactes du sol - Version robuste sans bpy.ops"""
 
-        bpy.ops.mesh.primitive_cube_add(size=1)
-        cutter = bpy.context.active_object
-        cutter.name = "Parquet_Cutter_Temp"
-        # ✅ FIX: Le cutter doit couvrir de Z=0 à Z=THICKNESS*2 pour capturer tout le parquet
-        cutter.scale = (width, length, self.THICKNESS * 4)
-        cutter.location = (width / 2, length / 2, self.THICKNESS)
-        bpy.ops.object.transform_apply(scale=True, location=True)
+        # Créer le cutter directement avec bmesh
+        cutter_mesh = bpy.data.meshes.new("Parquet_Cutter_Mesh")
+        cutter_bm = bmesh.new()
 
-        bpy.context.collection.objects.link(obj)
+        try:
+            half_height = self.THICKNESS * 2
+            verts = [
+                cutter_bm.verts.new((0, 0, -self.THICKNESS)),
+                cutter_bm.verts.new((width, 0, -self.THICKNESS)),
+                cutter_bm.verts.new((width, length, -self.THICKNESS)),
+                cutter_bm.verts.new((0, length, -self.THICKNESS)),
+                cutter_bm.verts.new((0, 0, half_height)),
+                cutter_bm.verts.new((width, 0, half_height)),
+                cutter_bm.verts.new((width, length, half_height)),
+                cutter_bm.verts.new((0, length, half_height)),
+            ]
+            cutter_bm.verts.ensure_lookup_table()
 
-        # ✅ FIX: L'objet doit être SÉLECTIONNÉ ET ACTIF pour modifier_apply
-        bpy.ops.object.select_all(action='DESELECT')
-        obj.select_set(True)
+            faces = [
+                (0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1),
+                (2, 6, 7, 3), (0, 3, 7, 4), (1, 5, 6, 2),
+            ]
+            for face_indices in faces:
+                cutter_bm.faces.new([verts[i] for i in face_indices])
+
+            cutter_bm.to_mesh(cutter_mesh)
+        finally:
+            cutter_bm.free()
+
+        cutter = bpy.data.objects.new("Parquet_Cutter_Temp", cutter_mesh)
+        scene_collection = bpy.context.scene.collection
+
+        scene_collection.objects.link(obj)
+        scene_collection.objects.link(cutter)
+
         bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        cutter.select_set(False)
 
-        # Appliquer Boolean (EXACT solver pour meilleure précision)
         bool_mod = obj.modifiers.new("Boolean", 'BOOLEAN')
         bool_mod.operation = 'INTERSECT'
         bool_mod.object = cutter
-        bool_mod.solver = 'EXACT'  # Plus précis que FAST, évite l'effet "tétris"
+        bool_mod.solver = 'EXACT'
 
         bpy.context.view_layer.update()
+
         try:
             bpy.ops.object.modifier_apply(modifier="Boolean")
             print(f"[Parquet Contrecollé] ✅ Boolean appliqué")
         except Exception as e:
-            print(f"[Parquet Contrecollé] ⚠️ Erreur Boolean: {e}")
-            if "Boolean" in obj.modifiers:
-                obj.modifiers.remove(obj.modifiers["Boolean"])
+            print(f"[Parquet Contrecollé] ⚠️ Erreur Boolean bpy.ops: {e}")
+            try:
+                depsgraph = bpy.context.evaluated_depsgraph_get()
+                obj_eval = obj.evaluated_get(depsgraph)
+                new_mesh = bpy.data.meshes.new_from_object(obj_eval)
+                obj.data = new_mesh
+                obj.modifiers.remove(bool_mod)
+                print(f"[Parquet Contrecollé] ✅ Boolean appliqué via depsgraph")
+            except Exception as e2:
+                print(f"[Parquet Contrecollé] ⚠️ Erreur Boolean fallback: {e2}")
+                if "Boolean" in obj.modifiers:
+                    obj.modifiers.remove(obj.modifiers["Boolean"])
 
+        scene_collection.objects.unlink(cutter)
         bpy.data.objects.remove(cutter)
-        bpy.context.collection.objects.unlink(obj)
+        bpy.data.meshes.remove(cutter_mesh)
+        scene_collection.objects.unlink(obj)
 
     def _apply_material(self, obj):
         """Matériau bois selon l'essence choisie"""
@@ -574,40 +656,75 @@ class Stratifie(FloorTypeBase):
         return obj
 
     def _clip_to_floor(self, obj, width, length, height):
-        """Coupe le parquet aux dimensions exactes du sol"""
+        """Coupe le parquet aux dimensions exactes du sol - Version robuste sans bpy.ops"""
 
-        bpy.ops.mesh.primitive_cube_add(size=1)
-        cutter = bpy.context.active_object
-        cutter.name = "Parquet_Cutter_Temp"
-        # ✅ FIX: Le cutter doit couvrir de Z=0 à Z=THICKNESS*2 pour capturer tout le parquet
-        cutter.scale = (width, length, self.THICKNESS * 4)
-        cutter.location = (width / 2, length / 2, self.THICKNESS)
-        bpy.ops.object.transform_apply(scale=True, location=True)
+        # Créer le cutter directement avec bmesh
+        cutter_mesh = bpy.data.meshes.new("Parquet_Cutter_Mesh")
+        cutter_bm = bmesh.new()
 
-        bpy.context.collection.objects.link(obj)
+        try:
+            half_height = self.THICKNESS * 2
+            verts = [
+                cutter_bm.verts.new((0, 0, -self.THICKNESS)),
+                cutter_bm.verts.new((width, 0, -self.THICKNESS)),
+                cutter_bm.verts.new((width, length, -self.THICKNESS)),
+                cutter_bm.verts.new((0, length, -self.THICKNESS)),
+                cutter_bm.verts.new((0, 0, half_height)),
+                cutter_bm.verts.new((width, 0, half_height)),
+                cutter_bm.verts.new((width, length, half_height)),
+                cutter_bm.verts.new((0, length, half_height)),
+            ]
+            cutter_bm.verts.ensure_lookup_table()
 
-        # ✅ FIX: L'objet doit être SÉLECTIONNÉ ET ACTIF pour modifier_apply
-        bpy.ops.object.select_all(action='DESELECT')
-        obj.select_set(True)
+            faces = [
+                (0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1),
+                (2, 6, 7, 3), (0, 3, 7, 4), (1, 5, 6, 2),
+            ]
+            for face_indices in faces:
+                cutter_bm.faces.new([verts[i] for i in face_indices])
+
+            cutter_bm.to_mesh(cutter_mesh)
+        finally:
+            cutter_bm.free()
+
+        cutter = bpy.data.objects.new("Parquet_Cutter_Temp", cutter_mesh)
+        scene_collection = bpy.context.scene.collection
+
+        scene_collection.objects.link(obj)
+        scene_collection.objects.link(cutter)
+
         bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        cutter.select_set(False)
 
-        # Appliquer Boolean (EXACT solver pour meilleure précision)
         bool_mod = obj.modifiers.new("Boolean", 'BOOLEAN')
         bool_mod.operation = 'INTERSECT'
         bool_mod.object = cutter
-        bool_mod.solver = 'EXACT'  # Plus précis que FAST, évite l'effet "tétris"
+        bool_mod.solver = 'EXACT'
 
         bpy.context.view_layer.update()
+
         try:
             bpy.ops.object.modifier_apply(modifier="Boolean")
             print(f"[Stratifié] ✅ Boolean appliqué")
         except Exception as e:
-            print(f"[Stratifié] ⚠️ Erreur Boolean: {e}")
-            if "Boolean" in obj.modifiers:
-                obj.modifiers.remove(obj.modifiers["Boolean"])
+            print(f"[Stratifié] ⚠️ Erreur Boolean bpy.ops: {e}")
+            try:
+                depsgraph = bpy.context.evaluated_depsgraph_get()
+                obj_eval = obj.evaluated_get(depsgraph)
+                new_mesh = bpy.data.meshes.new_from_object(obj_eval)
+                obj.data = new_mesh
+                obj.modifiers.remove(bool_mod)
+                print(f"[Stratifié] ✅ Boolean appliqué via depsgraph")
+            except Exception as e2:
+                print(f"[Stratifié] ⚠️ Erreur Boolean fallback: {e2}")
+                if "Boolean" in obj.modifiers:
+                    obj.modifiers.remove(obj.modifiers["Boolean"])
 
+        scene_collection.objects.unlink(cutter)
         bpy.data.objects.remove(cutter)
-        bpy.context.collection.objects.unlink(obj)
+        bpy.data.meshes.remove(cutter_mesh)
+        scene_collection.objects.unlink(obj)
 
     def _apply_material(self, obj):
         """Matériau stratifié - imitation bois"""

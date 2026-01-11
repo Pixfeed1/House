@@ -198,6 +198,9 @@ class FloorTypeBase:
             extruded_verts = [v for v in ret["geom"] if isinstance(v, bmesh.types.BMVert)]
             bmesh.ops.translate(bm, verts=extruded_verts, vec=(0, 0, -self.THICKNESS))
 
+            # ✅ CORRECTION: Recalculer les normales pour qu'elles pointent vers l'extérieur
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+
             # Finaliser
             bm.to_mesh(mesh)
             mesh.update()
@@ -263,6 +266,9 @@ class FloorTypeBase:
                 ret = bmesh.ops.extrude_face_region(bm, geom=all_faces)
                 extruded_verts = [v for v in ret["geom"] if isinstance(v, bmesh.types.BMVert)]
                 bmesh.ops.translate(bm, verts=extruded_verts, vec=(0, 0, -self.THICKNESS))
+
+                # ✅ CORRECTION: Recalculer les normales pour qu'elles pointent vers l'extérieur
+                bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 
             # Finaliser
             bm.to_mesh(mesh)
@@ -331,6 +337,9 @@ class FloorTypeBase:
                 ret = bmesh.ops.extrude_face_region(bm, geom=all_faces)
                 extruded_verts = [v for v in ret["geom"] if isinstance(v, bmesh.types.BMVert)]
                 bmesh.ops.translate(bm, verts=extruded_verts, vec=(0, 0, -self.THICKNESS))
+
+                # ✅ CORRECTION: Recalculer les normales pour qu'elles pointent vers l'extérieur
+                bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 
             # Finaliser
             bm.to_mesh(mesh)
