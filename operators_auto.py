@@ -2253,6 +2253,11 @@ class HOUSE_OT_generate_auto(Operator):
                 # Filtrer les ouvertures pour cette façade
                 facade_openings = [o for o in (openings or []) if o.get('wall') == facade['name']]
 
+                # DEBUG: Afficher les ouvertures pour cette façade
+                print(f"[House] Crépi {facade['name']}: {len(facade_openings)} ouvertures")
+                for op in facade_openings:
+                    print(f"  - {op.get('type')}: x={op.get('x'):.2f}, z={op.get('z'):.2f}, {op.get('width'):.2f}x{op.get('height'):.2f}m")
+
                 crepi = ExteriorCrepi(
                     plaster_type=props.exterior_crepi_type,
                     color_preset=color_preset,

@@ -105,7 +105,10 @@ class ExteriorCrepi:
         else:
             self.base_color = CREPI_COLOR_PRESETS.get(color_preset, CREPI_COLOR_PRESETS['BLANC_CASSE'])
 
-        print(f"[ExteriorCrepi] Type: {plaster_type}, Couleur: {color_preset}, Ouvertures brutes: {len(self._raw_openings)}")
+        print(f"[ExteriorCrepi] Type: {plaster_type}, Couleur: {color_preset}")
+        print(f"[ExteriorCrepi] Ouvertures brutes reçues: {len(self._raw_openings)}")
+        for i, op in enumerate(self._raw_openings):
+            print(f"  [{i}] wall={op.get('wall')}, type={op.get('type')}, x={op.get('x'):.2f}, z={op.get('z'):.2f}, {op.get('width'):.2f}x{op.get('height'):.2f}m")
 
     def _normalize_openings(self, openings):
         """
@@ -213,9 +216,14 @@ class ExteriorCrepi:
             return wall_obj
 
         # Sinon, créer un plan de crépi (pour murs simples)
-        print(f"[ExteriorCrepi] Création nouveau plan de crépi ({orientation}) avec {len(self.openings)} ouvertures normalisées")
-        for op in self.openings:
-            print(f"  - {op.get('type', 'unknown')} à x={op['x']:.2f}, z={op['z']:.2f}, {op['width']:.2f}x{op['height']:.2f}m")
+        print(f"[ExteriorCrepi] ====== CRÉATION CRÉPI {orientation.upper()} ======")
+        print(f"[ExteriorCrepi] Dimensions: {wall_width:.2f}m × {wall_height:.2f}m")
+        print(f"[ExteriorCrepi] Ouvertures normalisées: {len(self.openings)}")
+        if self.openings:
+            for op in self.openings:
+                print(f"  ✅ TROU: {op.get('type', 'unknown')} à x={op['x']:.2f}, z={op['z']:.2f}, {op['width']:.2f}x{op['height']:.2f}m")
+        else:
+            print(f"  ⚠️ AUCUNE OUVERTURE - Le crépi sera plein!")
         obj = self.create_crepi_plane(wall_width, wall_height, wall_thickness, orientation)
 
         mat = self.create_plaster_material(f"Crepi_{orientation}")
