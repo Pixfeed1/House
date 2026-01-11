@@ -2115,12 +2115,51 @@ class HOUSE_OT_generate_auto(Operator):
                 rotation=0
             )
 
-            print(f"[House] ✅ Porte {door_style} créée avec {len(door_objects)} éléments")
+            print(f"[House] ✅ Porte avant {door_style} créée avec {len(door_objects)} éléments")
 
         except Exception as e:
-            print(f"[House] ⚠️ Erreur création porte: {e}")
+            print(f"[House] ⚠️ Erreur création porte avant: {e}")
             import traceback
             traceback.print_exc()
+
+        # ================================================================
+        # PORTE ARRIÈRE (si activée)
+        # ================================================================
+        if getattr(props, 'include_back_door', False):
+            print(f"[House] Génération porte arrière...")
+
+            # Position de la porte arrière (centre du mur arrière)
+            back_door_x = width / 2 - door_width / 2
+            back_door_y = length  # Sur le mur arrière
+            back_door_z = 0
+
+            try:
+                back_door_generator = DoorGenerator(
+                    door_style=door_style,
+                    door_width=door_width,
+                    door_height=door_height,
+                    wood_color=wood_color,
+                    alu_color=alu_color,
+                    alu_finish=alu_finish,
+                    glass_type=glass_type,
+                    add_frame=True,
+                    add_handle=True,
+                    add_hinges=True,
+                    hinge_side='RIGHT'  # Inversé pour la porte arrière
+                )
+
+                back_door_objects = back_door_generator.generate(
+                    collection=collection,
+                    location=(back_door_x, back_door_y, back_door_z),
+                    rotation=math.pi  # Rotation de 180° pour faire face à l'extérieur
+                )
+
+                print(f"[House] ✅ Porte arrière créée avec {len(back_door_objects)} éléments")
+
+            except Exception as e:
+                print(f"[House] ⚠️ Erreur création porte arrière: {e}")
+                import traceback
+                traceback.print_exc()
 
     def _add_scene_lighting(self, context, props):
         """Ajoute l'éclairage"""

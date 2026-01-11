@@ -1053,11 +1053,19 @@ if HAS_BLENDER:
                                              offset_y=lever_offset_y,
                                              offset_z=0)
 
+                # Recalculer les normales pour éviter les faces inversées
+                bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+
                 bm.to_mesh(mesh)
             finally:
                 bm.free()
 
-            return bpy.data.objects.new(mesh_name, mesh)
+            obj = bpy.data.objects.new(mesh_name, mesh)
+
+            # S'assurer que l'objet est visible en solid mode
+            obj.show_in_front = False
+
+            return obj
 
         def _create_knob_handle_mesh(
             self,
@@ -1084,11 +1092,15 @@ if HAS_BLENDER:
                                    segments=16,
                                    offset_y=y_dir * (self.config.rosette_depth + knob_depth/2))
 
+                # Recalculer les normales
+                bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+
                 bm.to_mesh(mesh)
             finally:
                 bm.free()
 
-            return bpy.data.objects.new(mesh_name, mesh)
+            obj = bpy.data.objects.new(mesh_name, mesh)
+            return obj
 
         def _create_pull_bar_mesh(
             self,
@@ -1112,11 +1124,15 @@ if HAS_BLENDER:
                                    segments=8, offset_y=y_dir * bar_offset,
                                    horizontal=False)
 
+                # Recalculer les normales
+                bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+
                 bm.to_mesh(mesh)
             finally:
                 bm.free()
 
-            return bpy.data.objects.new(mesh_name, mesh)
+            obj = bpy.data.objects.new(mesh_name, mesh)
+            return obj
         
         def _create_single_handle(
             self,
