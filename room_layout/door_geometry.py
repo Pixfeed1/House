@@ -205,16 +205,37 @@ if HAS_BLENDER:
             parent.location = transform['position']
             parent.rotation_euler.z = transform['rotation']
             collection.objects.link(parent)
-            
-            # Parenter tous les objets
-            for obj in objects.values():
-                obj.parent = parent
-                # Convertir en coordonnées locales
-                obj.location = obj.location - transform['position']
-                obj.rotation_euler.z = obj.rotation_euler.z - transform['rotation']
-            
+
+            # Récupérer le panneau pour y parenter les éléments mobiles
+            panel_obj = objects.get('panel')
+
+            # Parenter les objets
+            for key, obj in objects.items():
+                if key == 'panel':
+                    # Le panneau reste parenté au parent principal
+                    obj.parent = parent
+                    obj.location = obj.location - transform['position']
+                    obj.rotation_euler.z = obj.rotation_euler.z - transform['rotation']
+                elif key.startswith('handle_') and panel_obj and not door.is_sliding:
+                    # Les poignées suivent le panneau (pour qu'elles tournent avec)
+                    obj.parent = panel_obj
+                    # Calculer la position relative au panneau
+                    panel_world_pos = panel_obj.location
+                    obj.location = obj.location - panel_world_pos
+                    obj.rotation_euler.z = obj.rotation_euler.z - panel_obj.rotation_euler.z
+                elif key.startswith('hinge_'):
+                    # Les charnières restent fixes (attachées au cadre)
+                    obj.parent = parent
+                    obj.location = obj.location - transform['position']
+                    obj.rotation_euler.z = obj.rotation_euler.z - transform['rotation']
+                else:
+                    # Cadre, seuil, etc. restent parentés au parent
+                    obj.parent = parent
+                    obj.location = obj.location - transform['position']
+                    obj.rotation_euler.z = obj.rotation_euler.z - transform['rotation']
+
             objects['parent'] = parent
-            
+
             return objects
         
         # ---------------------------------------------------------------------
@@ -342,63 +363,96 @@ if HAS_BLENDER:
         ) -> Optional[bpy.types.Object]:
             """
             Crée le vantail (panneau de porte).
-            
-            Le panneau est positionné selon le côté des charnières
-            et peut être pivoté si show_open=True.
+
+            Le panneau est créé avec son origine sur l'axe des charnières
+            pour permettre une rotation correcte.
+
+            Conventions:
+            - PUSH: la porte s'ouvre en poussant depuis room1 (vers Y+)
+            - PULL: la porte s'ouvre en tirant depuis room1 (vers Y-)
+            - LEFT/RIGHT: côté des charnières vu depuis room1
             """
-            
+
             if door.is_sliding:
                 return self._create_sliding_panel(door, transform, show_open)
-            
+
             mesh_name = f"Panel_{door.id}"
             mesh = bpy.data.meshes.new(mesh_name)
             bm = bmesh.new()
-            
+
             try:
                 w = door.width - 2 * self.config.panel_inset
                 h = door.height - self.config.panel_inset - self.config.panel_bottom_gap
                 t = self.config.panel_thickness
-                
-                # Position X selon le côté des charnières
+
+                # ==============================================
+                # IMPORTANT: Créer le panneau avec origine sur la charnière
+                # X=0 est l'axe de rotation (charnière)
+                # ==============================================
+
                 if door.hinge_side == DoorHingeSide.LEFT:
-                    # Charnières à gauche = panneau part de la gauche
-                    x_min = -door.width/2 + self.config.panel_inset
+                    # Charnières à gauche: panneau s'étend vers X+
+                    x_min = self.config.panel_inset
                     x_max = x_min + w
                 else:
-                    # Charnières à droite = panneau part de la droite
-                    x_max = door.width/2 - self.config.panel_inset
+                    # Charnières à droite: panneau s'étend vers X-
+                    x_max = -self.config.panel_inset
                     x_min = x_max - w
-                
-                # Le panneau est centré dans l'épaisseur du mur
-                y_min = -t/2
-                y_max = t/2
-                
+
+                # Position Y selon le sens d'ouverture
+                # Le panneau doit être du bon côté pour s'ouvrir correctement
+                if door.swing_direction == DoorSwingDirection.PUSH:
+                    # S'ouvre vers room2 (Y+): panneau légèrement vers Y-
+                    y_min = -t/2
+                    y_max = t/2
+                else:
+                    # S'ouvre vers room1 (Y-): panneau légèrement vers Y+
+                    y_min = -t/2
+                    y_max = t/2
+
                 # Hauteur
                 z_min = self.config.panel_bottom_gap
                 z_max = z_min + h
-                
+
                 self._add_box(bm, x_min, x_max, y_min, y_max, z_min, z_max)
-                
+
                 # Ajouter détails selon le style
                 if door.style == DoorStyle.PANELED:
                     self._add_panel_details(bm, x_min, x_max, z_min, z_max, t)
                 elif door.style == DoorStyle.GLAZED:
                     # TODO: Ajouter vitrage
                     pass
-                
+
                 bm.to_mesh(mesh)
-                
+
             finally:
                 bm.free()
-            
+
             obj = bpy.data.objects.new(mesh_name, mesh)
-            obj.location = transform['position'].copy()
-            obj.rotation_euler.z = transform['rotation']
-            
+
+            # Position: décaler pour que l'origine soit sur la charnière
+            # La charnière est à -door.width/2 (LEFT) ou +door.width/2 (RIGHT)
+            hinge_offset_x = -door.width/2 if door.hinge_side == DoorHingeSide.LEFT else door.width/2
+
+            angle = transform['rotation']
+            cos_a = math.cos(angle)
+            sin_a = math.sin(angle)
+
+            # Transformer l'offset en coordonnées monde
+            world_offset_x = hinge_offset_x * cos_a
+            world_offset_y = hinge_offset_x * sin_a
+
+            obj.location = Vector((
+                transform['position'].x + world_offset_x,
+                transform['position'].y + world_offset_y,
+                transform['position'].z
+            ))
+            obj.rotation_euler.z = angle
+
             # Si la porte doit être montrée ouverte
             if show_open and not door.is_sliding:
                 self._apply_door_opening(obj, door, transform)
-            
+
             return obj
         
         def _create_sliding_panel(
@@ -673,25 +727,49 @@ if HAS_BLENDER:
             door: DoorOpening,
             transform: Dict
         ) -> None:
-            """Applique la rotation d'ouverture à une porte battante."""
-            
-            angle = math.radians(self.config.preview_open_angle)
-            
-            # Ajuster selon le sens d'ouverture
+            """
+            Applique la rotation d'ouverture à une porte battante.
+
+            Puisque le panneau est créé avec son origine sur la charnière,
+            on peut simplement ajouter l'angle de rotation.
+
+            Conventions de sens de rotation:
+            - Vue de dessus, axe Z vers le haut
+            - Angle positif = sens anti-horaire
+            - Angle négatif = sens horaire
+
+            Comportement souhaité:
+            - PUSH + LEFT: porte s'ouvre vers Y+ en pivotant anti-horaire
+            - PUSH + RIGHT: porte s'ouvre vers Y+ en pivotant horaire
+            - PULL + LEFT: porte s'ouvre vers Y- en pivotant horaire
+            - PULL + RIGHT: porte s'ouvre vers Y- en pivotant anti-horaire
+            """
+
+            base_angle = math.radians(self.config.preview_open_angle)
+
+            # Déterminer le sens de rotation
+            # La porte doit s'ouvrir du bon côté selon swing_direction
+
             if door.swing_direction == DoorSwingDirection.PUSH:
-                angle = -angle
-            
-            # Ajuster selon le côté des charnières
-            if door.hinge_side == DoorHingeSide.RIGHT:
-                angle = -angle
-            
-            # Le pivot est sur les charnières
-            # Créer une rotation autour du bord avec charnières
-            pivot_x = -door.width/2 if door.hinge_side == DoorHingeSide.LEFT else door.width/2
-            
-            # Appliquer la rotation
-            # Note: Ceci est simplifié - idéalement utiliser un rig avec empties
-            obj.rotation_euler.z += angle
+                # S'ouvre vers Y+ (côté opposé à room1)
+                if door.hinge_side == DoorHingeSide.LEFT:
+                    # Charnière à gauche, pousse vers Y+: rotation positive (anti-horaire)
+                    rotation_angle = base_angle
+                else:
+                    # Charnière à droite, pousse vers Y+: rotation négative (horaire)
+                    rotation_angle = -base_angle
+            else:  # PULL
+                # S'ouvre vers Y- (côté room1)
+                if door.hinge_side == DoorHingeSide.LEFT:
+                    # Charnière à gauche, tire vers Y-: rotation négative (horaire)
+                    rotation_angle = -base_angle
+                else:
+                    # Charnière à droite, tire vers Y-: rotation positive (anti-horaire)
+                    rotation_angle = base_angle
+
+            # Appliquer la rotation autour de l'axe Z (vertical)
+            # L'origine est déjà sur la charnière, donc rotation_euler.z suffit
+            obj.rotation_euler.z += rotation_angle
         
         # ---------------------------------------------------------------------
         # CRÉATION DES CHARNIÈRES
@@ -807,50 +885,238 @@ if HAS_BLENDER:
         ) -> Dict[str, bpy.types.Object]:
             """
             Crée les poignées DES DEUX CÔTÉS de la porte.
-            
-            C'est le point crucial qui manquait dans l'ancienne version!
+
+            Les poignées sont positionnées de manière à suivre le panneau
+            quand la porte s'ouvre (elles seront parentées au panneau).
+
+            Coordonnées relatives à la charnière (origine du panneau):
+            - LEFT hinge: poignée à x = door.width - offset
+            - RIGHT hinge: poignée à x = -door.width + offset
             """
-            
+
             handles = {}
-            
-            # Position X (côté opposé aux charnières)
+
+            # Position X relative à la charnière (côté opposé)
             if door.hinge_side == DoorHingeSide.LEFT:
-                x_pos = door.width / 2 - self.config.handle_offset
+                # Charnière à gauche: poignée vers la droite
+                x_pos = door.width - self.config.panel_inset - self.config.handle_offset
             else:
-                x_pos = -door.width / 2 + self.config.handle_offset
-            
+                # Charnière à droite: poignée vers la gauche
+                x_pos = -door.width + self.config.panel_inset + self.config.handle_offset
+
             z_pos = self.config.handle_height
-            
+
             # Épaisseur du panneau pour positionner les poignées
             panel_t = self.config.panel_thickness
-            
-            # Poignée côté AVANT (face positive Y en local)
-            handle_front = self._create_single_handle(
-                door,
-                x_pos,
-                panel_t/2 + 0.005,  # Légèrement devant le panneau
-                z_pos,
-                transform,
-                "front",
-                facing_positive_y=True
-            )
-            if handle_front:
-                handles['front'] = handle_front
-            
-            # Poignée côté ARRIÈRE (face négative Y en local)
-            handle_back = self._create_single_handle(
-                door,
-                x_pos,
-                -panel_t/2 - 0.005,  # Légèrement derrière le panneau
-                z_pos,
-                transform,
-                "back",
-                facing_positive_y=False
-            )
-            if handle_back:
-                handles['back'] = handle_back
-            
+
+            # Pour les portes battantes, utiliser les coordonnées du panneau
+            # (origine sur la charnière, pas au centre)
+            if not door.is_sliding:
+                # Calculer la position de la charnière en monde
+                hinge_offset_x = -door.width/2 if door.hinge_side == DoorHingeSide.LEFT else door.width/2
+                angle = transform['rotation']
+                cos_a = math.cos(angle)
+                sin_a = math.sin(angle)
+
+                panel_origin = Vector((
+                    transform['position'].x + hinge_offset_x * cos_a,
+                    transform['position'].y + hinge_offset_x * sin_a,
+                    transform['position'].z
+                ))
+
+                # Créer les poignées relatives à l'origine du panneau
+                handle_front = self._create_single_handle_relative(
+                    door, x_pos, panel_t/2 + 0.005, z_pos,
+                    panel_origin, angle, "front", facing_positive_y=True
+                )
+                if handle_front:
+                    handles['front'] = handle_front
+
+                handle_back = self._create_single_handle_relative(
+                    door, x_pos, -panel_t/2 - 0.005, z_pos,
+                    panel_origin, angle, "back", facing_positive_y=False
+                )
+                if handle_back:
+                    handles['back'] = handle_back
+            else:
+                # Pour les coulissantes, utiliser le centre classique
+                handle_front = self._create_single_handle(
+                    door,
+                    x_pos,
+                    panel_t/2 + 0.005,
+                    z_pos,
+                    transform,
+                    "front",
+                    facing_positive_y=True
+                )
+                if handle_front:
+                    handles['front'] = handle_front
+
+                handle_back = self._create_single_handle(
+                    door,
+                    x_pos,
+                    -panel_t/2 - 0.005,
+                    z_pos,
+                    transform,
+                    "back",
+                    facing_positive_y=False
+                )
+                if handle_back:
+                    handles['back'] = handle_back
+
             return handles
+
+        def _create_single_handle_relative(
+            self,
+            door: DoorOpening,
+            x: float,
+            y: float,
+            z: float,
+            origin: Vector,
+            rotation: float,
+            side: str,
+            facing_positive_y: bool
+        ) -> Optional[bpy.types.Object]:
+            """
+            Crée une poignée positionnée relativement à une origine donnée.
+
+            Utilisé pour les portes battantes où les poignées doivent
+            être positionnées par rapport à l'origine du panneau (charnière).
+            """
+
+            if door.handle_type == DoorHandleType.NONE:
+                return None
+
+            # Créer le mesh selon le type
+            if door.handle_type == DoorHandleType.LEVER:
+                obj = self._create_lever_handle_mesh(door, side, facing_positive_y)
+            elif door.handle_type == DoorHandleType.KNOB:
+                obj = self._create_knob_handle_mesh(door, side, facing_positive_y)
+            elif door.handle_type == DoorHandleType.PULL_BAR:
+                obj = self._create_pull_bar_mesh(door, side, facing_positive_y)
+            elif door.handle_type == DoorHandleType.RECESSED:
+                obj = self._create_pull_bar_mesh(door, side, facing_positive_y)
+            else:
+                return None
+
+            if not obj:
+                return None
+
+            # Positionner relativement à l'origine (charnière)
+            cos_a = math.cos(rotation)
+            sin_a = math.sin(rotation)
+
+            world_x = origin.x + x * cos_a - y * sin_a
+            world_y = origin.y + x * sin_a + y * cos_a
+
+            obj.location = Vector((world_x, world_y, origin.z + z))
+            obj.rotation_euler.z = rotation
+
+            return obj
+
+        def _create_lever_handle_mesh(
+            self,
+            door: DoorOpening,
+            side: str,
+            facing_positive_y: bool
+        ) -> Optional[bpy.types.Object]:
+            """Crée le mesh d'une poignée levier."""
+
+            mesh_name = f"Handle_{door.id}_{side}"
+            mesh = bpy.data.meshes.new(mesh_name)
+            bm = bmesh.new()
+
+            try:
+                rr = self.config.rosette_radius
+                rd = self.config.rosette_depth
+                hr = self.config.handle_diameter / 2
+                hl = self.config.handle_length
+
+                y_dir = 1 if facing_positive_y else -1
+
+                # Rosace
+                self._add_cylinder(bm, radius=rr, height=rd, segments=16,
+                                   offset_y=y_dir * rd / 2)
+
+                # Tige sortante
+                stem_length = 0.025
+                self._add_cylinder(bm, radius=hr * 1.2, height=stem_length,
+                                   segments=8, offset_y=y_dir * (rd + stem_length/2))
+
+                # Levier horizontal
+                lever_direction = 1 if door.hinge_side == DoorHingeSide.RIGHT else -1
+                lever_offset_y = y_dir * (rd + stem_length)
+
+                self._add_horizontal_cylinder(bm, radius=hr, length=hl,
+                                             segments=8,
+                                             offset_x=lever_direction * hl / 2,
+                                             offset_y=lever_offset_y,
+                                             offset_z=0)
+
+                bm.to_mesh(mesh)
+            finally:
+                bm.free()
+
+            return bpy.data.objects.new(mesh_name, mesh)
+
+        def _create_knob_handle_mesh(
+            self,
+            door: DoorOpening,
+            side: str,
+            facing_positive_y: bool
+        ) -> Optional[bpy.types.Object]:
+            """Crée le mesh d'une poignée bouton."""
+
+            mesh_name = f"Handle_{door.id}_{side}"
+            mesh = bpy.data.meshes.new(mesh_name)
+            bm = bmesh.new()
+
+            try:
+                knob_radius = 0.022
+                knob_depth = 0.025
+                y_dir = 1 if facing_positive_y else -1
+
+                self._add_cylinder(bm, radius=self.config.rosette_radius,
+                                   height=self.config.rosette_depth, segments=16,
+                                   offset_y=y_dir * self.config.rosette_depth / 2)
+
+                self._add_cylinder(bm, radius=knob_radius, height=knob_depth,
+                                   segments=16,
+                                   offset_y=y_dir * (self.config.rosette_depth + knob_depth/2))
+
+                bm.to_mesh(mesh)
+            finally:
+                bm.free()
+
+            return bpy.data.objects.new(mesh_name, mesh)
+
+        def _create_pull_bar_mesh(
+            self,
+            door: DoorOpening,
+            side: str,
+            facing_positive_y: bool
+        ) -> Optional[bpy.types.Object]:
+            """Crée le mesh d'une barre de tirage."""
+
+            mesh_name = f"Handle_{door.id}_{side}"
+            mesh = bpy.data.meshes.new(mesh_name)
+            bm = bmesh.new()
+
+            try:
+                bar_height = 0.15
+                bar_radius = 0.01
+                bar_offset = 0.03
+                y_dir = 1 if facing_positive_y else -1
+
+                self._add_cylinder(bm, radius=bar_radius, height=bar_height,
+                                   segments=8, offset_y=y_dir * bar_offset,
+                                   horizontal=False)
+
+                bm.to_mesh(mesh)
+            finally:
+                bm.free()
+
+            return bpy.data.objects.new(mesh_name, mesh)
         
         def _create_single_handle(
             self,
