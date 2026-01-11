@@ -455,36 +455,217 @@ if HAS_BLENDER:
             z_max: float,
             thickness: float
         ) -> None:
-            """Ajoute des détails de moulures sur un panneau."""
-            
-            # Créer deux panneaux en relief (style classique)
-            panel_margin = 0.08
-            panel_depth = 0.008
-            
-            pw = (x_max - x_min) - 2 * panel_margin
-            ph = (z_max - z_min) / 2 - 1.5 * panel_margin
-            
-            # Panneau du bas
-            self._add_box(
+            """
+            Ajoute des détails de moulures réalistes sur un panneau.
+
+            Crée une porte à panneaux style classique avec:
+            - Cadre périphérique (stiles et rails)
+            - Panneaux en creux des DEUX côtés
+            - Moulures autour des panneaux
+            """
+
+            # Dimensions du cadre (stiles et rails)
+            stile_width = 0.09          # Largeur des montants verticaux
+            rail_height_top = 0.10      # Traverse haute
+            rail_height_mid = 0.12      # Traverse médiane
+            rail_height_bot = 0.14      # Traverse basse (plus large)
+
+            # Profondeur des éléments
+            recess_depth = 0.006        # Profondeur du creux du panneau
+            molding_width = 0.015       # Largeur des moulures
+            molding_depth = 0.004       # Relief des moulures
+
+            # Calculer les dimensions des panneaux
+            inner_x_min = x_min + stile_width
+            inner_x_max = x_max - stile_width
+            panel_width = inner_x_max - inner_x_min
+
+            # Zone disponible en hauteur
+            available_height = z_max - z_min - rail_height_top - rail_height_mid - rail_height_bot
+            panel_height = available_height / 2 - 0.02  # Petit espace
+
+            # Positions Z des panneaux
+            panel_bot_z_min = z_min + rail_height_bot + 0.01
+            panel_bot_z_max = panel_bot_z_min + panel_height
+            panel_top_z_max = z_max - rail_height_top - 0.01
+            panel_top_z_min = panel_top_z_max - panel_height
+
+            # Ajouter les détails des DEUX côtés
+            for y_sign in [1, -1]:
+                y_offset = y_sign * thickness / 2
+
+                # ========================================
+                # PANNEAUX EN CREUX (surface enfoncée)
+                # ========================================
+
+                # Panneau du bas - creux
+                self._add_recessed_panel(
+                    bm,
+                    inner_x_min + molding_width,
+                    inner_x_max - molding_width,
+                    y_offset,
+                    y_sign,
+                    panel_bot_z_min + molding_width,
+                    panel_bot_z_max - molding_width,
+                    recess_depth
+                )
+
+                # Panneau du haut - creux
+                self._add_recessed_panel(
+                    bm,
+                    inner_x_min + molding_width,
+                    inner_x_max - molding_width,
+                    y_offset,
+                    y_sign,
+                    panel_top_z_min + molding_width,
+                    panel_top_z_max - molding_width,
+                    recess_depth
+                )
+
+                # ========================================
+                # MOULURES AUTOUR DES PANNEAUX
+                # ========================================
+
+                # Moulures du panneau bas
+                self._add_panel_moldings(
+                    bm,
+                    inner_x_min, inner_x_max,
+                    y_offset, y_sign,
+                    panel_bot_z_min, panel_bot_z_max,
+                    molding_width, molding_depth
+                )
+
+                # Moulures du panneau haut
+                self._add_panel_moldings(
+                    bm,
+                    inner_x_min, inner_x_max,
+                    y_offset, y_sign,
+                    panel_top_z_min, panel_top_z_max,
+                    molding_width, molding_depth
+                )
+
+        def _add_recessed_panel(
+            self,
+            bm: bmesh.types.BMesh,
+            x_min: float,
+            x_max: float,
+            y_base: float,
+            y_sign: int,
+            z_min: float,
+            z_max: float,
+            depth: float
+        ) -> None:
+            """Ajoute un panneau en creux (surface enfoncée)."""
+
+            # Le panneau est légèrement enfoncé par rapport à la surface
+            y_surface = y_base
+            y_recess = y_base - y_sign * depth
+
+            # Créer la surface en creux (rectangle plat)
+            verts = [
+                bm.verts.new((x_min, y_recess, z_min)),
+                bm.verts.new((x_max, y_recess, z_min)),
+                bm.verts.new((x_max, y_recess, z_max)),
+                bm.verts.new((x_min, y_recess, z_max)),
+            ]
+
+            if y_sign > 0:
+                bm.faces.new(verts)
+            else:
+                bm.faces.new(verts[::-1])
+
+        def _add_panel_moldings(
+            self,
+            bm: bmesh.types.BMesh,
+            x_min: float,
+            x_max: float,
+            y_base: float,
+            y_sign: int,
+            z_min: float,
+            z_max: float,
+            molding_width: float,
+            molding_depth: float
+        ) -> None:
+            """Ajoute les moulures autour d'un panneau (cadre en relief)."""
+
+            y_surface = y_base
+            y_relief = y_base + y_sign * molding_depth
+
+            # Moulure gauche (verticale)
+            self._add_molding_strip(
                 bm,
-                x_min + panel_margin,
-                x_min + panel_margin + pw,
-                thickness/2,
-                thickness/2 + panel_depth,
-                z_min + panel_margin,
-                z_min + panel_margin + ph
+                x_min, x_min + molding_width,
+                y_surface, y_relief, y_sign,
+                z_min, z_max
             )
-            
-            # Panneau du haut
-            self._add_box(
+
+            # Moulure droite (verticale)
+            self._add_molding_strip(
                 bm,
-                x_min + panel_margin,
-                x_min + panel_margin + pw,
-                thickness/2,
-                thickness/2 + panel_depth,
-                z_max - panel_margin - ph,
-                z_max - panel_margin
+                x_max - molding_width, x_max,
+                y_surface, y_relief, y_sign,
+                z_min, z_max
             )
+
+            # Moulure basse (horizontale)
+            self._add_molding_strip(
+                bm,
+                x_min + molding_width, x_max - molding_width,
+                y_surface, y_relief, y_sign,
+                z_min, z_min + molding_width
+            )
+
+            # Moulure haute (horizontale)
+            self._add_molding_strip(
+                bm,
+                x_min + molding_width, x_max - molding_width,
+                y_surface, y_relief, y_sign,
+                z_max - molding_width, z_max
+            )
+
+        def _add_molding_strip(
+            self,
+            bm: bmesh.types.BMesh,
+            x_min: float,
+            x_max: float,
+            y_base: float,
+            y_relief: float,
+            y_sign: int,
+            z_min: float,
+            z_max: float
+        ) -> None:
+            """Ajoute une bande de moulure (petit parallélépipède en relief)."""
+
+            # Créer un petit relief pour la moulure
+            verts = [
+                # Face de base (au niveau de la surface)
+                bm.verts.new((x_min, y_base, z_min)),
+                bm.verts.new((x_max, y_base, z_min)),
+                bm.verts.new((x_max, y_base, z_max)),
+                bm.verts.new((x_min, y_base, z_max)),
+                # Face en relief
+                bm.verts.new((x_min, y_relief, z_min)),
+                bm.verts.new((x_max, y_relief, z_min)),
+                bm.verts.new((x_max, y_relief, z_max)),
+                bm.verts.new((x_min, y_relief, z_max)),
+            ]
+
+            if y_sign > 0:
+                # Face extérieure (visible)
+                bm.faces.new([verts[4], verts[5], verts[6], verts[7]])
+                # Côtés
+                bm.faces.new([verts[0], verts[1], verts[5], verts[4]])  # Bas
+                bm.faces.new([verts[2], verts[3], verts[7], verts[6]])  # Haut
+                bm.faces.new([verts[0], verts[4], verts[7], verts[3]])  # Gauche
+                bm.faces.new([verts[1], verts[2], verts[6], verts[5]])  # Droite
+            else:
+                # Face extérieure (visible) - orientation inversée
+                bm.faces.new([verts[7], verts[6], verts[5], verts[4]])
+                # Côtés
+                bm.faces.new([verts[4], verts[5], verts[1], verts[0]])  # Bas
+                bm.faces.new([verts[6], verts[7], verts[3], verts[2]])  # Haut
+                bm.faces.new([verts[4], verts[0], verts[3], verts[7]])  # Gauche
+                bm.faces.new([verts[5], verts[6], verts[2], verts[1]])  # Droite
         
         def _apply_door_opening(
             self,

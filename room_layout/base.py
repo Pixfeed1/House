@@ -343,7 +343,7 @@ class DoorOpening:
     hinge_side: DoorHingeSide = DoorHingeSide.LEFT
     
     # Style
-    style: DoorStyle = DoorStyle.PLAIN
+    style: DoorStyle = DoorStyle.PANELED  # Porte à panneaux par défaut
     handle_type: DoorHandleType = DoorHandleType.LEVER
     
     # État pour visualisation
