@@ -2462,6 +2462,11 @@ class HOUSE_OT_generate_auto(Operator):
         # Calculer les ouvertures pour les finitions extérieures
         openings = self._calculate_openings_for_brick_walls(props)
 
+        # DEBUG: Afficher les ouvertures calculées
+        print(f"[House] DEBUG: {len(openings)} ouvertures totales")
+        for op in openings:
+            print(f"  - {op['wall']}: {op['type']} à x={op['x']:.2f}, z={op['z']:.2f}, {op['width']:.2f}x{op['height']:.2f}m")
+
         # Les finitions sont créées indépendamment des murs existants
         if hasattr(props, 'use_exterior_crepi') and props.use_exterior_crepi:
             self._apply_exterior_crepi(None, props, collection, openings)

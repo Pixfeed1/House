@@ -105,7 +105,7 @@ class ExteriorCrepi:
         else:
             self.base_color = CREPI_COLOR_PRESETS.get(color_preset, CREPI_COLOR_PRESETS['BLANC_CASSE'])
 
-        print(f"[ExteriorCrepi] Type: {plaster_type}, Couleur: {color_preset}, Ouvertures: {len(self.openings)}")
+        print(f"[ExteriorCrepi] Type: {plaster_type}, Couleur: {color_preset}, Ouvertures brutes: {len(self._raw_openings)}")
 
     def _normalize_openings(self, openings):
         """
@@ -213,7 +213,9 @@ class ExteriorCrepi:
             return wall_obj
 
         # Sinon, créer un plan de crépi (pour murs simples)
-        print(f"[ExteriorCrepi] Création nouveau plan de crépi ({orientation}) avec {len(self.openings)} ouvertures")
+        print(f"[ExteriorCrepi] Création nouveau plan de crépi ({orientation}) avec {len(self.openings)} ouvertures normalisées")
+        for op in self.openings:
+            print(f"  - {op.get('type', 'unknown')} à x={op['x']:.2f}, z={op['z']:.2f}, {op['width']:.2f}x{op['height']:.2f}m")
         obj = self.create_crepi_plane(wall_width, wall_height, wall_thickness, orientation)
 
         mat = self.create_plaster_material(f"Crepi_{orientation}")
