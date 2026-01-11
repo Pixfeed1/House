@@ -718,6 +718,19 @@ class HOUSE_OT_generate_auto(Operator):
             'wall': 'front',
             'type': 'door'
         })
+
+        # PORTE ARRIÈRE (si activée)
+        if getattr(props, 'include_back_door', False):
+            openings.append({
+                'x': door_x,
+                'y': length,
+                'z': 0,
+                'width': door_width,
+                'height': door_height,
+                'depth': WALL_THICKNESS,
+                'wall': 'back',
+                'type': 'door'
+            })
         
         # FENÊTRES
         for floor in range(props.num_floors):
