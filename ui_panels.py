@@ -139,12 +139,36 @@ class HOUSE_PT_doors_panel(Panel):
     def draw(self, context):
         layout = self.layout
         props = context.scene.house_generator
-        
+
         layout.use_property_split = True
         layout.use_property_decorate = False
-        
+
+        # Style de porte
+        box = layout.box()
+        box.label(text="Style de porte d'entrée", icon='DOOR')
+        box.prop(props, "door_style", text="")
+
+        # Options selon le style
+        if props.door_style in ['SOLID_WOOD', 'WOOD_CENTER_GLASS']:
+            box.prop(props, "door_wood_color", text="Teinte bois")
+        elif props.door_style == 'ALU_LARGE_GLASS':
+            box.prop(props, "door_alu_color", text="Couleur alu")
+            box.prop(props, "door_alu_finish", text="Finition")
+
+        if props.door_style in ['WOOD_CENTER_GLASS', 'ALU_LARGE_GLASS']:
+            box.prop(props, "door_glass_type", text="Vitrage")
+
+        layout.separator()
+
+        # Dimensions
         col = layout.column(align=True)
         col.prop(props, "front_door_width", text="Largeur porte")
+        col.prop(props, "door_opening_angle", text="Angle ouverture")
+
+        layout.separator()
+
+        # Porte arrière
+        col = layout.column(align=True)
         col.prop(props, "include_back_door", text="Porte arrière")
 
 
