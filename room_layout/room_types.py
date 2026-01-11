@@ -8,11 +8,15 @@ Chaque type de pièce définit :
 - Contrainte de lumière naturelle
 - Priorité pour l'attribution des fenêtres
 - Score d'adjacence avec les autres pièces
+- Exigences pour les portes
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TYPE_CHECKING
 from enum import Enum, auto
+
+if TYPE_CHECKING:
+    from .base import DoorSwingDirection, DoorType
 
 
 class RoomCategory(Enum):
@@ -23,6 +27,146 @@ class RoomCategory(Enum):
     CIRCULATION = auto() # Circulation (entrée, couloir)
     WORK = auto()        # Travail (bureau)
 
+
+# =============================================================================
+# EXIGENCES DE PORTES PAR TYPE DE PIÈCE
+# =============================================================================
+
+@dataclass
+class DoorRequirements:
+    """
+    Exigences de porte pour un type de pièce.
+    
+    Ces règles sont utilisées par le DoorPlacementEngine pour
+    déterminer automatiquement les caractéristiques des portes.
+    """
+    
+    # Largeur préférée (None = utiliser défaut global)
+    preferred_width: Optional[float] = None
+    
+    # Sens d'ouverture obligatoire
+    # 'PUSH' = vers l'extérieur de la pièce (s'éloigne de room1)
+    # 'PULL' = vers l'intérieur de la pièce (vers room1)
+    # None = calculer automatiquement
+    required_swing: Optional[str] = None
+    
+    # Serrure obligatoire
+    requires_lock: bool = False
+    
+    # Types de portes autorisés (noms des DoorType)
+    allowed_types: List[str] = field(default_factory=lambda: [
+        'STANDARD', 'SLIDING', 'POCKET'
+    ])
+    
+    # Nombre minimum de portes (accès)
+    min_doors: int = 1
+    
+    # Porte coupe-feu obligatoire
+    requires_fire_rating: bool = False
+    
+    # Largeur PMR obligatoire (0.90m)
+    requires_accessible: bool = False
+    
+    # Description pour l'UI
+    description: str = ""
+
+
+# Exigences par type de pièce
+DOOR_REQUIREMENTS: Dict[str, DoorRequirements] = {
+    'WC': DoorRequirements(
+        preferred_width=0.70,
+        required_swing='PULL',  # S'ouvre vers l'extérieur du WC (sécurité: si qqn tombe)
+        requires_lock=True,
+        allowed_types=['STANDARD', 'POCKET'],
+        description="Porte étroite avec verrou, ouverture vers l'extérieur"
+    ),
+    'SDB': DoorRequirements(
+        preferred_width=0.70,
+        requires_lock=True,
+        allowed_types=['STANDARD', 'SLIDING', 'POCKET'],
+        description="Porte avec verrou pour intimité"
+    ),
+    'CHAMBRE': DoorRequirements(
+        preferred_width=0.83,
+        required_swing='PUSH',  # S'ouvre vers l'intérieur de la chambre (intimité)
+        requires_lock=True,
+        description="Porte standard avec serrure pour intimité"
+    ),
+    'CHAMBRE_PARENTALE': DoorRequirements(
+        preferred_width=0.83,
+        required_swing='PUSH',
+        requires_lock=True,
+        description="Porte standard avec serrure"
+    ),
+    'DRESSING': DoorRequirements(
+        preferred_width=0.73,
+        requires_lock=False,
+        allowed_types=['STANDARD', 'SLIDING', 'POCKET'],
+        description="Porte coulissante idéale pour gagner de l'espace"
+    ),
+    'CELLIER': DoorRequirements(
+        preferred_width=0.73,
+        requires_lock=False,
+        description="Porte simple"
+    ),
+    'BUANDERIE': DoorRequirements(
+        preferred_width=0.73,
+        requires_lock=False,
+        description="Porte simple"
+    ),
+    'BUREAU': DoorRequirements(
+        preferred_width=0.83,
+        requires_lock=True,
+        description="Porte avec serrure optionnelle pour concentration"
+    ),
+    'SALON': DoorRequirements(
+        preferred_width=0.83,
+        requires_lock=False,
+        allowed_types=['STANDARD', 'DOUBLE', 'SLIDING'],
+        description="Porte large ou double possible"
+    ),
+    'CUISINE': DoorRequirements(
+        preferred_width=0.83,
+        requires_lock=False,
+        allowed_types=['STANDARD', 'SLIDING', 'POCKET'],
+        description="Porte standard ou coulissante"
+    ),
+    'SALLE_A_MANGER': DoorRequirements(
+        preferred_width=0.83,
+        requires_lock=False,
+        allowed_types=['STANDARD', 'DOUBLE'],
+        description="Porte standard ou double"
+    ),
+    'ENTREE': DoorRequirements(
+        preferred_width=0.90,
+        min_doors=1,  # Au moins la porte d'entrée
+        requires_lock=True,
+        requires_accessible=True,
+        description="Porte d'entrée PMR avec serrure"
+    ),
+    'COULOIR': DoorRequirements(
+        preferred_width=0.83,
+        requires_lock=False,
+        min_doors=0,  # Un couloir peut ne pas avoir de porte propre
+        description="Portes de distribution"
+    ),
+    'GARAGE': DoorRequirements(
+        preferred_width=0.83,
+        requires_lock=True,
+        requires_fire_rating=True,  # Porte coupe-feu garage -> maison
+        description="Porte coupe-feu vers l'habitation"
+    ),
+}
+
+
+def get_door_requirements(room_type_id: str) -> DoorRequirements:
+    """Retourne les exigences de porte pour un type de pièce."""
+    return DOOR_REQUIREMENTS.get(room_type_id, DoorRequirements())
+
+
+# =============================================================================
+# DÉFINITION DES TYPES DE PIÈCES
+# =============================================================================
 
 @dataclass
 class RoomTypeDefinition:
@@ -71,6 +215,11 @@ class RoomTypeDefinition:
         if area > self.area_max:
             return True, f"Surface très grande (max habituel: {self.area_max}m²)"
         return True, ""
+    
+    @property
+    def door_requirements(self) -> DoorRequirements:
+        """Retourne les exigences de porte pour ce type de pièce."""
+        return get_door_requirements(self.id)
 
 
 # =============================================================================
@@ -268,12 +417,32 @@ _register_room_type(RoomTypeDefinition(
     area_max=10.0,
     requires_window=False,
     prefers_window=False,
-    window_priority=8,
+    window_priority=7,
     min_width=1.2,
     adjacency_scores={
         'CUISINE': 2,
-        'ENTREE': 1,
-        'GARAGE': 2,
+        'GARAGE': 1,
+    },
+    preferred_floors=[0],
+))
+
+_register_room_type(RoomTypeDefinition(
+    id='BUANDERIE',
+    name='Buanderie',
+    name_plural='Buanderies',
+    icon='MOD_WAVE',
+    category=RoomCategory.SERVICE,
+    area_min=3.0,
+    area_default=5.0,
+    area_max=10.0,
+    requires_window=False,
+    prefers_window=True,
+    window_priority=6,
+    min_width=1.5,
+    adjacency_scores={
+        'CUISINE': 1,
+        'CELLIER': 1,
+        'SDB': 1,
     },
     preferred_floors=[0],
 ))
@@ -298,6 +467,27 @@ _register_room_type(RoomTypeDefinition(
     preferred_floors=None,
 ))
 
+_register_room_type(RoomTypeDefinition(
+    id='GARAGE',
+    name='Garage',
+    name_plural='Garages',
+    icon='AUTO',
+    category=RoomCategory.SERVICE,
+    area_min=12.0,
+    area_default=18.0,
+    area_max=50.0,
+    requires_window=False,
+    prefers_window=False,
+    window_priority=10,
+    min_width=2.5,
+    max_aspect_ratio=4.0,
+    adjacency_scores={
+        'CELLIER': 1,
+        'ENTREE': 1,
+    },
+    preferred_floors=[0],
+))
+
 
 # -----------------------------------------------------------------------------
 # CIRCULATION
@@ -311,16 +501,16 @@ _register_room_type(RoomTypeDefinition(
     category=RoomCategory.CIRCULATION,
     area_min=2.0,
     area_default=5.0,
-    area_max=15.0,
+    area_max=12.0,
     requires_window=False,
     prefers_window=True,
-    window_priority=7,
+    window_priority=5,
     min_width=1.2,
     adjacency_scores={
         'SALON': 3,
         'COULOIR': 2,
         'WC': 1,
-        'CELLIER': 1,
+        'GARAGE': 1,
     },
     preferred_floors=[0],
 ))
@@ -329,15 +519,15 @@ _register_room_type(RoomTypeDefinition(
     id='COULOIR',
     name='Couloir',
     name_plural='Couloirs',
-    icon='CON_FOLLOWPATH',
+    icon='TRACKING_FORWARDS_SINGLE',
     category=RoomCategory.CIRCULATION,
     area_min=2.0,
-    area_default=4.0,
+    area_default=5.0,
     area_max=15.0,
     requires_window=False,
     prefers_window=False,
     window_priority=7,
-    min_width=0.9,          # Norme accessibilité
+    min_width=0.9,          # Norme accessibilité PMR
     max_aspect_ratio=10.0,  # Peut être très allongé
     adjacency_scores={
         # Le couloir peut être adjacent à tout
