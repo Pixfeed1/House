@@ -3,594 +3,576 @@
 """
 Propriétés Blender pour le système de distribution des pièces.
 
-Ce fichier définit les PropertyGroups pour l'interface utilisateur :
-- RoomItemProperty : Une pièce dans la liste
-- RoomLayoutProperties : Configuration globale du layout
-
-Ces propriétés doivent être intégrées dans le properties.py principal
-de l'addon House.
+Définit toutes les PropertyGroups utilisées dans l'interface.
 """
 
 import bpy
 from bpy.props import (
-    StringProperty,
-    IntProperty,
-    FloatProperty,
-    BoolProperty,
-    EnumProperty,
-    CollectionProperty,
-    PointerProperty,
+    StringProperty, FloatProperty, IntProperty, BoolProperty,
+    EnumProperty, CollectionProperty, PointerProperty, FloatVectorProperty
 )
 from bpy.types import PropertyGroup
 
-from .room_types import (
-    ROOM_TYPES,
-    HOUSING_PRESETS,
-    get_enum_items_for_blender,
-    get_preset_enum_items_for_blender,
-)
+from .room_types import get_enum_items_for_blender, get_preset_enum_items_for_blender
 
 
 # =============================================================================
-# CALLBACKS
-# =============================================================================
-
-def _update_preset(self, context):
-    """Callback quand le preset change."""
-    if self.housing_preset == 'CUSTOM':
-        return
-
-    preset = HOUSING_PRESETS.get(self.housing_preset)
-    if not preset:
-        return
-
-    # Reconstruire la liste des pièces
-    self.rooms.clear()
-
-    for room_type_id, count, area_override in preset.rooms:
-        room_def = ROOM_TYPES.get(room_type_id)
-        if not room_def:
-            continue
-
-        for i in range(count):
-            item = self.rooms.add()
-            item.room_type = room_type_id
-            item.target_area = area_override if area_override else room_def.area_default
-            item.name = f"{room_def.name} {i+1}" if count > 1 else room_def.name
-
-
-def _update_room_type(self, context):
-    """Callback quand le type de pièce change."""
-    room_def = ROOM_TYPES.get(self.room_type)
-    if room_def:
-        # Mettre à jour les limites
-        self.area_min = room_def.area_min
-        self.area_max = room_def.area_max
-
-        # Réinitialiser la surface si hors limites
-        if self.target_area < room_def.area_min:
-            self.target_area = room_def.area_default
-        elif self.target_area > room_def.area_max:
-            self.target_area = room_def.area_max
-
-
-def _get_room_type_items(self, context):
-    """Génère dynamiquement les items du menu déroulant des types de pièces."""
-    return get_enum_items_for_blender()
-
-
-def _get_preset_items(self, context):
-    """Génère dynamiquement les items du menu déroulant des presets."""
-    return get_preset_enum_items_for_blender()
-
-
-# =============================================================================
-# PROPERTY GROUPS
+# PROPRIÉTÉS D'UNE PIÈCE
 # =============================================================================
 
 class RoomItemProperty(PropertyGroup):
-    """
-    Représente une pièce dans la liste des pièces.
-
-    Permet à l'utilisateur de personnaliser chaque pièce :
-    - Type (salon, chambre, etc.)
-    - Surface cible
-    - Étage (pour multi-étages)
-    """
-
-    # Nom affiché dans la liste
-    name: StringProperty(
-        name="Nom",
-        description="Nom de la pièce",
-        default="Pièce"
-    )
-
-    # Type de pièce
+    """Représente une pièce dans la liste des pièces à placer."""
+    
     room_type: EnumProperty(
         name="Type",
         description="Type de pièce",
-        items=_get_room_type_items,
-        update=_update_room_type
+        items=get_enum_items_for_blender,
     )
-
-    # Surface cible
-    target_area: FloatProperty(
+    
+    area: FloatProperty(
         name="Surface",
-        description="Surface cible en m²",
-        default=10.0,
+        description="Surface souhaitée en m²",
+        default=12.0,
         min=1.0,
         max=100.0,
-        step=50,  # 0.5m² par clic
-        precision=1,
         unit='AREA',
-        subtype='NONE'
+        subtype='UNSIGNED'
     )
-
-    # Limites (mises à jour automatiquement)
-    area_min: FloatProperty(
-        name="Min",
-        default=3.0,
-        options={'HIDDEN'}
+    
+    # Propriétés calculées après placement (lecture seule dans l'UI)
+    actual_area: FloatProperty(
+        name="Surface réelle",
+        description="Surface obtenue après placement",
+        default=0.0,
+        unit='AREA'
     )
-
-    area_max: FloatProperty(
-        name="Max",
-        default=50.0,
-        options={'HIDDEN'}
-    )
-
-    # Étage (pour multi-étages)
-    floor: IntProperty(
-        name="Étage",
-        description="Étage de la pièce (0 = RDC)",
-        default=0,
-        min=0,
-        max=5
-    )
-
-    # État (pour feedback)
+    
     is_placed: BoolProperty(
         name="Placée",
-        description="La pièce a-t-elle été placée avec succès",
-        default=False,
-        options={'HIDDEN', 'SKIP_SAVE'}
+        description="La pièce a-t-elle été placée",
+        default=False
     )
-
-    has_warning: BoolProperty(
-        name="Avertissement",
-        description="La pièce a un avertissement",
-        default=False,
-        options={'HIDDEN', 'SKIP_SAVE'}
-    )
-
-    warning_message: StringProperty(
-        name="Message",
-        default="",
-        options={'HIDDEN', 'SKIP_SAVE'}
-    )
-
-
-class RoomLayoutProperties(PropertyGroup):
-    """
-    Propriétés globales pour la configuration du layout.
-
-    Contient :
-    - Mode (preset ou personnalisé)
-    - Liste des pièces
-    - Options de génération
-    """
-
-    # -------------------------------------------------------------------------
-    # MODE ET PRESET
-    # -------------------------------------------------------------------------
-
-    housing_preset: EnumProperty(
-        name="Type de logement",
-        description="Preset de configuration du logement",
-        items=_get_preset_items,
-        default=2,  # T3 par défaut (index dans la liste)
-        update=_update_preset
-    )
-
-    # -------------------------------------------------------------------------
-    # LISTE DES PIÈCES
-    # -------------------------------------------------------------------------
-
-    rooms: CollectionProperty(
-        type=RoomItemProperty,
-        name="Pièces",
-        description="Liste des pièces à générer"
-    )
-
-    rooms_index: IntProperty(
-        name="Index",
-        description="Index de la pièce sélectionnée",
-        default=0
-    )
-
-    # -------------------------------------------------------------------------
-    # OPTIONS DE GÉNÉRATION
-    # -------------------------------------------------------------------------
-
-    # Couloir
-    corridor_width: FloatProperty(
-        name="Largeur couloir",
-        description="Largeur du couloir de distribution",
-        default=1.0,
-        min=0.80,
-        max=1.50,
-        step=5,
-        precision=2,
-        unit='LENGTH'
-    )
-
-    auto_corridor: BoolProperty(
-        name="Couloir automatique",
-        description="Générer automatiquement un couloir si nécessaire",
-        default=True
-    )
-
-    # Escalier
-    has_staircase: BoolProperty(
-        name="Escalier",
-        description="Réserver une zone pour l'escalier",
+    
+    has_window: BoolProperty(
+        name="Fenêtre",
+        description="La pièce a-t-elle une fenêtre",
         default=False
     )
 
-    staircase_position: EnumProperty(
-        name="Position escalier",
-        description="Position de l'escalier dans le plan",
+
+# =============================================================================
+# PROPRIÉTÉS D'UNE PORTE
+# =============================================================================
+
+class DoorItemProperty(PropertyGroup):
+    """Représente une porte dans la liste des portes générées."""
+    
+    # Identification
+    door_id: StringProperty(
+        name="ID",
+        description="Identifiant unique de la porte"
+    )
+    
+    # Pièces connectées (lecture seule, pour affichage)
+    room1_name: StringProperty(
+        name="Pièce 1",
+        description="Première pièce connectée"
+    )
+    
+    room2_name: StringProperty(
+        name="Pièce 2",
+        description="Deuxième pièce connectée (vide si extérieur)"
+    )
+    
+    # Type de porte
+    door_type: EnumProperty(
+        name="Type",
+        description="Type de porte",
         items=[
-            ('CORNER_SW', "Coin Sud-Ouest", "Escalier dans le coin sud-ouest"),
-            ('CORNER_SE', "Coin Sud-Est", "Escalier dans le coin sud-est"),
-            ('CORNER_NW', "Coin Nord-Ouest", "Escalier dans le coin nord-ouest"),
-            ('CORNER_NE', "Coin Nord-Est", "Escalier dans le coin nord-est"),
-            ('SIDE_W', "Côté Ouest", "Escalier centré sur le mur ouest"),
-            ('SIDE_E', "Côté Est", "Escalier centré sur le mur est"),
-            ('CENTER', "Centre", "Escalier au centre"),
+            ('STANDARD', "Battante", "Porte battante classique", 'MESH_PLANE', 0),
+            ('SLIDING', "Coulissante", "Porte coulissante", 'ARROW_LEFTRIGHT', 1),
+            ('POCKET', "Galandage", "Porte à galandage (dans le mur)", 'FULLSCREEN_EXIT', 2),
+            ('DOUBLE', "Double", "Porte double battant", 'MOD_MIRROR', 3),
+            ('ENTRY', "Entrée", "Porte d'entrée principale", 'HOME', 4),
         ],
-        default='CORNER_SW'
+        default='STANDARD'
     )
-
-    staircase_type: EnumProperty(
-        name="Type escalier",
-        description="Type d'escalier",
+    
+    # Dimensions
+    width: FloatProperty(
+        name="Largeur",
+        description="Largeur de la porte",
+        default=0.83,
+        min=0.63,
+        max=1.80,
+        unit='LENGTH',
+        subtype='DISTANCE'
+    )
+    
+    height: FloatProperty(
+        name="Hauteur",
+        description="Hauteur de la porte",
+        default=2.04,
+        min=1.80,
+        max=2.50,
+        unit='LENGTH',
+        subtype='DISTANCE'
+    )
+    
+    # Sens d'ouverture
+    swing_direction: EnumProperty(
+        name="Sens",
+        description="Sens d'ouverture de la porte",
         items=[
-            ('STRAIGHT', "Droit", "Escalier droit (3.5m × 1m)"),
-            ('QUARTER', "Quart tournant", "Escalier quart tournant (2.5m × 2m)"),
-            ('HALF', "Demi tournant", "Escalier demi tournant (2m × 2.5m)"),
+            ('PUSH', "Pousser", "S'ouvre en poussant (vers pièce 2)", 'FORWARD', 0),
+            ('PULL', "Tirer", "S'ouvre en tirant (vers pièce 1)", 'BACK', 1),
         ],
-        default='QUARTER'
+        default='PUSH'
+    )
+    
+    # Côté charnières
+    hinge_side: EnumProperty(
+        name="Charnières",
+        description="Côté des charnières (vu depuis pièce 1)",
+        items=[
+            ('LEFT', "Gauche", "Charnières à gauche", 'TRIA_LEFT', 0),
+            ('RIGHT', "Droite", "Charnières à droite", 'TRIA_RIGHT', 1),
+        ],
+        default='LEFT'
+    )
+    
+    # Style visuel
+    style: EnumProperty(
+        name="Style",
+        description="Style visuel de la porte",
+        items=[
+            ('PLAIN', "Pleine", "Porte pleine sans vitrage", 'MESH_PLANE', 0),
+            ('GLAZED', "Vitrée", "Porte avec vitrage central", 'MESH_GRID', 1),
+            ('HALF_GLAZED', "Semi-vitrée", "Vitrée en partie haute", 'SEQ_SPLITVIEW', 2),
+            ('PANELED', "À panneaux", "Porte avec moulures", 'MESH_CUBE', 3),
+            ('FLUSH', "Plane", "Porte moderne sans relief", 'MATPLANE', 4),
+        ],
+        default='PLAIN'
+    )
+    
+    # Type de poignée
+    handle_type: EnumProperty(
+        name="Poignée",
+        description="Type de poignée",
+        items=[
+            ('LEVER', "Levier", "Poignée bec-de-cane (levier)", 'ORIENTATION_VIEW', 0),
+            ('KNOB', "Bouton", "Poignée bouton rond", 'MESH_UVSPHERE', 1),
+            ('PULL_BAR', "Barre", "Barre de tirage", 'GRIP', 2),
+            ('RECESSED', "Encastrée", "Poignée encastrée", 'SELECT_SET', 3),
+            ('NONE', "Aucune", "Sans poignée visible", 'X', 4),
+        ],
+        default='LEVER'
+    )
+    
+    # Options
+    has_lock: BoolProperty(
+        name="Serrure",
+        description="La porte a une serrure/verrou",
+        default=False
+    )
+    
+    is_accessible: BoolProperty(
+        name="PMR",
+        description="Conforme accessibilité PMR (≥0.90m)",
+        default=False
+    )
+    
+    is_fire_rated: BoolProperty(
+        name="Coupe-feu",
+        description="Porte coupe-feu",
+        default=False
+    )
+    
+    # État pour visualisation
+    is_open: BoolProperty(
+        name="Ouverte",
+        description="Afficher la porte ouverte",
+        default=False
     )
 
-    # Cloisons
-    wall_thickness: FloatProperty(
-        name="Épaisseur cloisons",
-        description="Épaisseur des cloisons intérieures",
-        default=0.10,
-        min=0.07,
-        max=0.20,
-        step=1,
-        precision=2,
-        unit='LENGTH'
-    )
 
-    wall_height: FloatProperty(
+# =============================================================================
+# PROPRIÉTÉS PRINCIPALES DU LAYOUT
+# =============================================================================
+
+class RoomLayoutProperties(PropertyGroup):
+    """Propriétés principales du système de distribution des pièces."""
+    
+    # -------------------------------------------------------------------------
+    # DIMENSIONS DU BÂTIMENT
+    # -------------------------------------------------------------------------
+    
+    building_width: FloatProperty(
+        name="Largeur",
+        description="Largeur du bâtiment (axe X)",
+        default=10.0,
+        min=4.0,
+        max=50.0,
+        unit='LENGTH',
+        subtype='DISTANCE'
+    )
+    
+    building_depth: FloatProperty(
+        name="Profondeur",
+        description="Profondeur du bâtiment (axe Y)",
+        default=8.0,
+        min=4.0,
+        max=50.0,
+        unit='LENGTH',
+        subtype='DISTANCE'
+    )
+    
+    floor_height: FloatProperty(
         name="Hauteur sous plafond",
         description="Hauteur des murs intérieurs",
         default=2.50,
         min=2.20,
         max=4.00,
-        step=10,
-        precision=2,
-        unit='LENGTH'
+        unit='LENGTH',
+        subtype='DISTANCE'
     )
-
-    # Portes
-    door_width: FloatProperty(
-        name="Largeur portes",
-        description="Largeur des portes intérieures",
+    
+    num_floors: IntProperty(
+        name="Nombre d'étages",
+        description="Nombre d'étages (1 = RDC seul)",
+        default=1,
+        min=1,
+        max=5
+    )
+    
+    # -------------------------------------------------------------------------
+    # MURS
+    # -------------------------------------------------------------------------
+    
+    exterior_wall_thickness: FloatProperty(
+        name="Murs extérieurs",
+        description="Épaisseur des murs extérieurs",
+        default=0.20,
+        min=0.15,
+        max=0.50,
+        unit='LENGTH',
+        subtype='DISTANCE'
+    )
+    
+    interior_wall_thickness: FloatProperty(
+        name="Cloisons",
+        description="Épaisseur des cloisons intérieures",
+        default=0.10,
+        min=0.05,
+        max=0.20,
+        unit='LENGTH',
+        subtype='DISTANCE'
+    )
+    
+    # -------------------------------------------------------------------------
+    # PRESET ET PIÈCES
+    # -------------------------------------------------------------------------
+    
+    housing_preset: EnumProperty(
+        name="Preset",
+        description="Configuration prédéfinie du logement",
+        items=get_preset_enum_items_for_blender,
+        default='T3'
+    )
+    
+    # Liste des pièces personnalisées
+    rooms: CollectionProperty(
+        type=RoomItemProperty,
+        name="Pièces"
+    )
+    
+    rooms_index: IntProperty(
+        name="Index pièce",
+        description="Index de la pièce sélectionnée",
+        default=0
+    )
+    
+    # -------------------------------------------------------------------------
+    # PORTES - OPTIONS GLOBALES
+    # -------------------------------------------------------------------------
+    
+    door_default_width: FloatProperty(
+        name="Largeur par défaut",
+        description="Largeur par défaut des portes intérieures",
         default=0.83,
         min=0.63,
         max=1.20,
-        step=1,
-        precision=2,
-        unit='LENGTH'
+        unit='LENGTH',
+        subtype='DISTANCE'
     )
-
-    door_height: FloatProperty(
-        name="Hauteur portes",
-        description="Hauteur des portes intérieures",
+    
+    door_default_height: FloatProperty(
+        name="Hauteur par défaut",
+        description="Hauteur par défaut des portes",
         default=2.04,
         min=1.80,
         max=2.50,
-        step=1,
-        precision=2,
-        unit='LENGTH'
+        unit='LENGTH',
+        subtype='DISTANCE'
     )
-
-    generate_door_frames: BoolProperty(
-        name="Cadres de portes",
-        description="Générer les cadres de portes",
+    
+    door_entry_width: FloatProperty(
+        name="Largeur entrée",
+        description="Largeur de la porte d'entrée",
+        default=0.90,
+        min=0.80,
+        max=1.20,
+        unit='LENGTH',
+        subtype='DISTANCE'
+    )
+    
+    door_generate_frames: BoolProperty(
+        name="Cadres",
+        description="Générer les cadres de portes (huisseries)",
         default=True
     )
-
+    
+    door_generate_panels: BoolProperty(
+        name="Vantaux",
+        description="Générer les panneaux de porte (vantaux)",
+        default=True
+    )
+    
+    door_generate_handles: BoolProperty(
+        name="Poignées",
+        description="Générer les poignées (des deux côtés)",
+        default=True
+    )
+    
+    door_generate_hinges: BoolProperty(
+        name="Charnières",
+        description="Générer les charnières",
+        default=True
+    )
+    
+    door_show_open: BoolProperty(
+        name="Portes ouvertes",
+        description="Afficher les portes entrouvertes (30°)",
+        default=False
+    )
+    
+    door_pmr_mode: BoolProperty(
+        name="Mode PMR",
+        description="Forcer les largeurs PMR (0.90m minimum)",
+        default=False
+    )
+    
+    door_generate_entry: BoolProperty(
+        name="Porte d'entrée",
+        description="Générer automatiquement la porte d'entrée principale",
+        default=True
+    )
+    
+    # Liste des portes générées
+    doors: CollectionProperty(
+        type=DoorItemProperty,
+        name="Portes"
+    )
+    
+    doors_index: IntProperty(
+        name="Index porte",
+        description="Index de la porte sélectionnée",
+        default=0
+    )
+    
     # -------------------------------------------------------------------------
-    # OPTIONS AVANCÉES
+    # FENÊTRES
     # -------------------------------------------------------------------------
-
+    
+    window_width: FloatProperty(
+        name="Largeur fenêtres",
+        description="Largeur par défaut des fenêtres",
+        default=1.20,
+        min=0.60,
+        max=3.00,
+        unit='LENGTH',
+        subtype='DISTANCE'
+    )
+    
+    window_height: FloatProperty(
+        name="Hauteur fenêtres",
+        description="Hauteur par défaut des fenêtres",
+        default=1.20,
+        min=0.60,
+        max=2.20,
+        unit='LENGTH',
+        subtype='DISTANCE'
+    )
+    
+    window_sill_height: FloatProperty(
+        name="Allège",
+        description="Hauteur d'allège (sous la fenêtre)",
+        default=0.90,
+        min=0.0,
+        max=1.20,
+        unit='LENGTH',
+        subtype='DISTANCE'
+    )
+    
+    # -------------------------------------------------------------------------
+    # OPTIONS DE GÉNÉRATION
+    # -------------------------------------------------------------------------
+    
+    generate_exterior_walls: BoolProperty(
+        name="Murs extérieurs",
+        description="Générer les murs extérieurs",
+        default=True
+    )
+    
+    generate_interior_walls: BoolProperty(
+        name="Cloisons",
+        description="Générer les cloisons intérieures",
+        default=True
+    )
+    
+    generate_floor: BoolProperty(
+        name="Sol",
+        description="Générer le plancher",
+        default=True
+    )
+    
+    generate_ceiling: BoolProperty(
+        name="Plafond",
+        description="Générer le plafond",
+        default=False
+    )
+    
+    generate_room_markers: BoolProperty(
+        name="Marqueurs",
+        description="Générer des marqueurs pour identifier les pièces",
+        default=True
+    )
+    
+    # -------------------------------------------------------------------------
+    # COULEURS ET MATÉRIAUX
+    # -------------------------------------------------------------------------
+    
+    wall_color: FloatVectorProperty(
+        name="Couleur murs",
+        description="Couleur des murs intérieurs",
+        subtype='COLOR',
+        size=4,
+        min=0.0, max=1.0,
+        default=(0.9, 0.9, 0.88, 1.0)
+    )
+    
+    door_frame_color: FloatVectorProperty(
+        name="Couleur cadres",
+        description="Couleur des cadres de portes",
+        subtype='COLOR',
+        size=4,
+        min=0.0, max=1.0,
+        default=(0.55, 0.40, 0.25, 1.0)
+    )
+    
+    door_panel_color: FloatVectorProperty(
+        name="Couleur portes",
+        description="Couleur des panneaux de portes",
+        subtype='COLOR',
+        size=4,
+        min=0.0, max=1.0,
+        default=(0.95, 0.95, 0.93, 1.0)
+    )
+    
+    # -------------------------------------------------------------------------
+    # ÉTAT
+    # -------------------------------------------------------------------------
+    
+    is_generated: BoolProperty(
+        name="Généré",
+        description="Un plan a été généré",
+        default=False
+    )
+    
+    last_generation_score: FloatProperty(
+        name="Score",
+        description="Score du dernier plan généré",
+        default=0.0
+    )
+    
     show_advanced: BoolProperty(
         name="Options avancées",
         description="Afficher les options avancées",
         default=False
     )
 
-    optimization_level: EnumProperty(
-        name="Optimisation",
-        description="Niveau d'optimisation du placement",
-        items=[
-            ('FAST', "Rapide", "Placement glouton, rapide mais moins optimal"),
-            ('BALANCED', "Équilibré", "Bon compromis vitesse/qualité"),
-            ('QUALITY', "Qualité", "Optimisation poussée, plus lent"),
-        ],
-        default='BALANCED'
-    )
-
-    random_seed: IntProperty(
-        name="Graine aléatoire",
-        description="Graine pour la génération (0 = aléatoire)",
-        default=0,
-        min=0,
-        max=999999
-    )
-
-    # -------------------------------------------------------------------------
-    # RÉSULTATS (lecture seule)
-    # -------------------------------------------------------------------------
-
-    last_generation_success: BoolProperty(
-        name="Succès",
-        default=False,
-        options={'HIDDEN', 'SKIP_SAVE'}
-    )
-
-    last_generation_message: StringProperty(
-        name="Message",
-        default="",
-        options={'HIDDEN', 'SKIP_SAVE'}
-    )
-
-    last_generation_score: FloatProperty(
-        name="Score",
-        default=0.0,
-        options={'HIDDEN', 'SKIP_SAVE'}
-    )
-
-    # -------------------------------------------------------------------------
-    # MÉTHODES UTILITAIRES
-    # -------------------------------------------------------------------------
-
-    def get_rooms_list(self) -> list:
-        """
-        Retourne la liste des pièces au format attendu par le solver.
-
-        Returns:
-            Liste de tuples (room_type_id, target_area)
-        """
-        return [(room.room_type, room.target_area) for room in self.rooms]
-
-    def get_total_requested_area(self) -> float:
-        """Retourne la surface totale demandée."""
-        return sum(room.target_area for room in self.rooms)
-
-    def add_room(self, room_type: str, area: float = None) -> RoomItemProperty:
-        """
-        Ajoute une pièce à la liste.
-
-        Args:
-            room_type: ID du type de pièce
-            area: Surface cible (optionnel, utilise défaut si None)
-
-        Returns:
-            L'item créé
-        """
-        room_def = ROOM_TYPES.get(room_type)
-        if not room_def:
-            return None
-
-        item = self.rooms.add()
-        item.room_type = room_type
-        item.target_area = area if area else room_def.area_default
-        item.name = room_def.name
-
-        # Numéroter si plusieurs du même type
-        count = sum(1 for r in self.rooms if r.room_type == room_type)
-        if count > 1:
-            item.name = f"{room_def.name} {count}"
-
-        return item
-
-    def remove_room(self, index: int) -> bool:
-        """
-        Supprime une pièce de la liste.
-
-        Args:
-            index: Index de la pièce à supprimer
-
-        Returns:
-            True si supprimé, False sinon
-        """
-        if 0 <= index < len(self.rooms):
-            self.rooms.remove(index)
-            if self.rooms_index >= len(self.rooms):
-                self.rooms_index = max(0, len(self.rooms) - 1)
-            return True
-        return False
-
-    def clear_rooms(self) -> None:
-        """Supprime toutes les pièces."""
-        self.rooms.clear()
-        self.rooms_index = 0
-
-    def apply_preset(self, preset_id: str) -> bool:
-        """
-        Applique un preset.
-
-        Args:
-            preset_id: ID du preset à appliquer
-
-        Returns:
-            True si appliqué, False sinon
-        """
-        if preset_id not in HOUSING_PRESETS and preset_id != 'CUSTOM':
-            return False
-
-        self.housing_preset = preset_id
-        _update_preset(self, None)
-        return True
-
 
 # =============================================================================
-# OPÉRATEURS POUR LA LISTE
+# FONCTIONS DE MISE À JOUR
 # =============================================================================
 
-class ROOM_OT_add(bpy.types.Operator):
-    """Ajoute une pièce à la liste"""
-    bl_idname = "room.add"
-    bl_label = "Ajouter une pièce"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    room_type: EnumProperty(
-        name="Type",
-        items=_get_room_type_items
-    )
-
-    def execute(self, context):
-        props = context.scene.room_layout
-        props.add_room(self.room_type)
-        props.rooms_index = len(props.rooms) - 1
-
-        # Passer en mode personnalisé
-        if props.housing_preset != 'CUSTOM':
-            props.housing_preset = 'CUSTOM'
-
-        return {'FINISHED'}
-
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
-
-
-class ROOM_OT_remove(bpy.types.Operator):
-    """Supprime la pièce sélectionnée"""
-    bl_idname = "room.remove"
-    bl_label = "Supprimer la pièce"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        props = context.scene.room_layout
-        return len(props.rooms) > 0
-
-    def execute(self, context):
-        props = context.scene.room_layout
-        props.remove_room(props.rooms_index)
-
-        # Passer en mode personnalisé
-        if props.housing_preset != 'CUSTOM':
-            props.housing_preset = 'CUSTOM'
-
-        return {'FINISHED'}
+def update_rooms_from_preset(self, context):
+    """Met à jour la liste des pièces quand le preset change."""
+    from .room_types import HOUSING_PRESETS, ROOM_TYPES
+    
+    props = context.scene.room_layout
+    preset_id = props.housing_preset
+    
+    if preset_id == 'CUSTOM':
+        return
+    
+    if preset_id not in HOUSING_PRESETS:
+        return
+    
+    preset = HOUSING_PRESETS[preset_id]
+    rooms_list = preset.get_rooms_list()
+    
+    # Vider la liste actuelle
+    props.rooms.clear()
+    
+    # Ajouter les nouvelles pièces
+    for room_type_id, area in rooms_list:
+        item = props.rooms.add()
+        item.room_type = room_type_id
+        item.area = area
 
 
-class ROOM_OT_move(bpy.types.Operator):
-    """Déplace une pièce dans la liste"""
-    bl_idname = "room.move"
-    bl_label = "Déplacer la pièce"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    direction: EnumProperty(
-        items=[
-            ('UP', "Haut", ""),
-            ('DOWN', "Bas", ""),
-        ]
-    )
-
-    @classmethod
-    def poll(cls, context):
-        props = context.scene.room_layout
-        return len(props.rooms) > 1
-
-    def execute(self, context):
-        props = context.scene.room_layout
-        index = props.rooms_index
-
-        if self.direction == 'UP' and index > 0:
-            props.rooms.move(index, index - 1)
-            props.rooms_index -= 1
-        elif self.direction == 'DOWN' and index < len(props.rooms) - 1:
-            props.rooms.move(index, index + 1)
-            props.rooms_index += 1
-
-        return {'FINISHED'}
-
-
-class ROOM_OT_duplicate(bpy.types.Operator):
-    """Duplique la pièce sélectionnée"""
-    bl_idname = "room.duplicate"
-    bl_label = "Dupliquer la pièce"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        props = context.scene.room_layout
-        return len(props.rooms) > 0
-
-    def execute(self, context):
-        props = context.scene.room_layout
-
-        if props.rooms_index >= 0 and props.rooms_index < len(props.rooms):
-            source = props.rooms[props.rooms_index]
-            props.add_room(source.room_type, source.target_area)
-
-            # Passer en mode personnalisé
-            if props.housing_preset != 'CUSTOM':
-                props.housing_preset = 'CUSTOM'
-
-        return {'FINISHED'}
-
-
-# =============================================================================
-# UI LIST
-# =============================================================================
-
-class ROOM_UL_list(bpy.types.UIList):
-    """Liste des pièces dans l'interface."""
-
-    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        room_def = ROOM_TYPES.get(item.room_type)
-        icon_name = room_def.icon if room_def else 'QUESTION'
-
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            row = layout.row(align=True)
-
-            # Icône de statut
-            if item.has_warning:
-                row.label(text="", icon='ERROR')
-            elif item.is_placed:
-                row.label(text="", icon='CHECKMARK')
-            else:
-                row.label(text="", icon='RADIOBUT_OFF')
-
-            # Type de pièce
-            row.prop(item, "room_type", text="", icon=icon_name, emboss=False)
-
-            # Surface
-            row.prop(item, "target_area", text="", emboss=True)
-            row.label(text="m²")
-
-        elif self.layout_type == 'GRID':
-            layout.alignment = 'CENTER'
-            layout.label(text="", icon=icon_name)
+def sync_doors_from_floor_plan(props, floor_plan):
+    """
+    Synchronise la liste des portes UI avec le FloorPlan.
+    
+    Appelé après la génération pour mettre à jour l'interface.
+    """
+    props.doors.clear()
+    
+    for door in floor_plan.doors:
+        item = props.doors.add()
+        item.door_id = door.id
+        
+        # Noms des pièces
+        room1 = floor_plan.get_room_by_id(door.room1_id)
+        item.room1_name = room1.name if room1 else door.room1_id
+        
+        if door.room2_id:
+            room2 = floor_plan.get_room_by_id(door.room2_id)
+            item.room2_name = room2.name if room2 else door.room2_id
+        else:
+            item.room2_name = "Extérieur"
+        
+        # Type
+        item.door_type = door.door_type.name
+        
+        # Dimensions
+        item.width = door.width
+        item.height = door.height
+        
+        # Comportement
+        item.swing_direction = door.swing_direction.name
+        item.hinge_side = door.hinge_side.name
+        
+        # Style
+        item.style = door.style.name
+        item.handle_type = door.handle_type.name
+        
+        # Options
+        item.has_lock = door.has_lock
+        item.is_accessible = door.is_accessible
+        item.is_fire_rated = door.is_fire_rated
 
 
 # =============================================================================
@@ -599,30 +581,22 @@ class ROOM_UL_list(bpy.types.UIList):
 
 classes = [
     RoomItemProperty,
+    DoorItemProperty,
     RoomLayoutProperties,
-    ROOM_OT_add,
-    ROOM_OT_remove,
-    ROOM_OT_move,
-    ROOM_OT_duplicate,
-    ROOM_UL_list,
 ]
 
 
 def register():
-    """Enregistre les classes et propriétés."""
+    """Enregistre les propriétés."""
     for cls in classes:
         bpy.utils.register_class(cls)
-
-    # Ajouter la propriété à la scène
+    
     bpy.types.Scene.room_layout = PointerProperty(type=RoomLayoutProperties)
 
 
 def unregister():
-    """Désenregistre les classes et propriétés."""
-    # Supprimer la propriété
-    if hasattr(bpy.types.Scene, 'room_layout'):
-        del bpy.types.Scene.room_layout
-
-    # Désenregistrer les classes dans l'ordre inverse
+    """Désenregistre les propriétés."""
+    del bpy.types.Scene.room_layout
+    
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

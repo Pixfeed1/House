@@ -8,12 +8,16 @@ par le solver et le générateur de géométrie.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Set
+from typing import List, Optional, Tuple, Set, Dict
 from enum import Enum, auto
 import math
 
 from .room_types import RoomTypeDefinition, ROOM_TYPES, get_room_type
 
+
+# =============================================================================
+# ÉNUMÉRATIONS DE BASE
+# =============================================================================
 
 class WallSide(Enum):
     """Côtés possibles d'une pièce rectangulaire."""
@@ -22,6 +26,60 @@ class WallSide(Enum):
     EAST = auto()   # X positif (droite)
     WEST = auto()   # X négatif (gauche)
 
+
+# =============================================================================
+# ÉNUMÉRATIONS POUR LES PORTES
+# =============================================================================
+
+class DoorType(Enum):
+    """Types de portes disponibles."""
+    STANDARD = auto()      # Porte battante classique
+    SLIDING = auto()       # Porte coulissante
+    POCKET = auto()        # Porte à galandage (dans le mur)
+    DOUBLE = auto()        # Porte double battant
+    FRENCH = auto()        # Porte-fenêtre
+    ENTRY = auto()         # Porte d'entrée principale
+
+
+class DoorSwingDirection(Enum):
+    """
+    Sens d'ouverture de la porte.
+    Défini par rapport à room1 (première pièce dans DoorOpening).
+    """
+    PUSH = auto()    # S'ouvre EN POUSSANT depuis room1 (vers room2)
+    PULL = auto()    # S'ouvre EN TIRANT depuis room1 (vers room1)
+
+
+class DoorHingeSide(Enum):
+    """
+    Côté des charnières.
+    Défini en regardant la porte depuis room1.
+    """
+    LEFT = auto()    # Charnières à gauche
+    RIGHT = auto()   # Charnières à droite
+
+
+class DoorStyle(Enum):
+    """Style visuel de la porte."""
+    PLAIN = auto()         # Porte pleine
+    GLAZED = auto()        # Porte vitrée (un panneau central)
+    HALF_GLAZED = auto()   # Demi-vitrée (vitrage en haut)
+    PANELED = auto()       # Porte à panneaux (moulures)
+    FLUSH = auto()         # Porte plane moderne
+
+
+class DoorHandleType(Enum):
+    """Type de poignée."""
+    LEVER = auto()         # Poignée bec-de-cane (levier)
+    KNOB = auto()          # Poignée bouton rond
+    PULL_BAR = auto()      # Barre de tirage (coulissantes)
+    RECESSED = auto()      # Poignée encastrée (galandage)
+    NONE = auto()          # Sans poignée visible
+
+
+# =============================================================================
+# RECTANGLE
+# =============================================================================
 
 @dataclass
 class Rectangle:
@@ -101,16 +159,17 @@ class Rectangle:
 
     def touches(self, other: 'Rectangle', tolerance: float = 0.01) -> bool:
         """Vérifie si deux rectangles sont adjacents (se touchent sans se chevaucher)."""
-        # Vérifie si les rectangles partagent un bord
         if abs(self.x_max - other.x_min) < tolerance or abs(self.x_min - other.x_max) < tolerance:
-            # Adjacent horizontalement
             return (self.y_min < other.y_max and self.y_max > other.y_min)
         if abs(self.y_max - other.y_min) < tolerance or abs(self.y_min - other.y_max) < tolerance:
-            # Adjacent verticalement
             return (self.x_min < other.x_max and self.x_max > other.x_min)
         return False
 
-    def get_shared_edge(self, other: 'Rectangle', tolerance: float = 0.01) -> Optional[Tuple[WallSide, float, float, float]]:
+    def get_shared_edge(
+        self, 
+        other: 'Rectangle', 
+        tolerance: float = 0.01
+    ) -> Optional[Tuple[WallSide, float, float, float]]:
         """
         Retourne le bord partagé avec un autre rectangle.
 
@@ -150,10 +209,14 @@ class Rectangle:
 
         return None
 
-    def get_exterior_walls(self, building_bounds: 'Rectangle', tolerance: float = 0.01, wall_thickness: float = 0.20) -> List[WallSide]:
+    def get_exterior_walls(
+        self, 
+        building_bounds: 'Rectangle', 
+        tolerance: float = 0.01, 
+        wall_thickness: float = 0.20
+    ) -> List[WallSide]:
         """Retourne la liste des côtés qui sont sur l'extérieur du bâtiment."""
         exterior = []
-        # Prendre en compte l'épaisseur du mur extérieur
         inner_margin = wall_thickness + tolerance
 
         if self.x_min <= building_bounds.x_min + inner_margin:
@@ -165,6 +228,20 @@ class Rectangle:
         if self.y_max >= building_bounds.y_max - inner_margin:
             exterior.append(WallSide.NORTH)
         return exterior
+
+    def get_wall_segment(
+        self, 
+        side: WallSide
+    ) -> Tuple[Tuple[float, float], Tuple[float, float]]:
+        """Retourne les coordonnées (start, end) d'un côté du rectangle."""
+        if side == WallSide.SOUTH:
+            return ((self.x_min, self.y_min), (self.x_max, self.y_min))
+        elif side == WallSide.NORTH:
+            return ((self.x_min, self.y_max), (self.x_max, self.y_max))
+        elif side == WallSide.WEST:
+            return ((self.x_min, self.y_min), (self.x_min, self.y_max))
+        else:  # EAST
+            return ((self.x_max, self.y_min), (self.x_max, self.y_max))
 
     def subdivide_horizontal(self, ratio: float) -> Tuple['Rectangle', 'Rectangle']:
         """Divise le rectangle horizontalement (en Y)."""
@@ -208,6 +285,10 @@ class Rectangle:
         return f"Rectangle({self.x:.2f}, {self.y:.2f}, {self.width:.2f}×{self.depth:.2f})"
 
 
+# =============================================================================
+# OUVERTURES (FENÊTRES)
+# =============================================================================
+
 @dataclass
 class WindowOpening:
     """Représente une ouverture (fenêtre ou porte-fenêtre) sur un mur extérieur."""
@@ -217,7 +298,8 @@ class WindowOpening:
     width: float            # Largeur de l'ouverture
     height: float           # Hauteur de l'ouverture
     sill_height: float      # Hauteur d'allège
-    is_door: bool = False   # True si c'est une porte-fenêtre
+    is_french_door: bool = False   # True si c'est une porte-fenêtre
+    room_id: Optional[str] = None  # Pièce associée
 
     @property
     def center_position(self) -> float:
@@ -225,21 +307,92 @@ class WindowOpening:
         return self.position + self.width / 2
 
 
+# =============================================================================
+# PORTES
+# =============================================================================
+
 @dataclass
 class DoorOpening:
-    """Représente une porte entre deux pièces."""
-
-    room1_id: str           # ID de la première pièce
-    room2_id: str           # ID de la deuxième pièce
-    wall_side: WallSide     # Côté du mur (du point de vue room1)
-    position: float         # Position le long du mur partagé
-    width: float = 0.83     # Largeur standard
-    height: float = 2.04    # Hauteur standard
-
+    """
+    Représente une porte complète entre deux espaces.
+    
+    Conventions:
+    - room1 est toujours la pièce "de référence"
+    - Le sens d'ouverture et les charnières sont définis depuis room1
+    - Pour une porte d'entrée, room1 = intérieur, room2 = None (extérieur)
+    """
+    
+    # Identification unique
+    id: str
+    
+    # Connexions
+    room1_id: str                     # Pièce de référence (intérieur pour entrée)
+    room2_id: Optional[str] = None    # Autre pièce (None = extérieur)
+    
+    # Position sur le mur
+    wall_side: WallSide = WallSide.NORTH  # Côté du mur (depuis room1)
+    position: float = 0.0             # Position le long du mur (depuis le début)
+    
+    # Dimensions
+    width: float = 0.83               # Largeur (0.63 WC, 0.83 standard, 0.90 PMR)
+    height: float = 2.04              # Hauteur standard
+    
+    # Type et comportement
+    door_type: DoorType = DoorType.STANDARD
+    swing_direction: DoorSwingDirection = DoorSwingDirection.PUSH
+    hinge_side: DoorHingeSide = DoorHingeSide.LEFT
+    
+    # Style
+    style: DoorStyle = DoorStyle.PLAIN
+    handle_type: DoorHandleType = DoorHandleType.LEVER
+    
+    # État pour visualisation
+    opening_angle: float = 0.0        # Angle d'ouverture actuel (0-90°)
+    is_open: bool = False             # Pour le rendu
+    
+    # Sécurité et accessibilité
+    has_lock: bool = False            # Serrure/verrou
+    is_fire_rated: bool = False       # Porte coupe-feu
+    is_accessible: bool = False       # Conforme PMR (≥0.90m)
+    
+    # Métadonnées
+    auto_generated: bool = True       # Générée automatiquement vs manuelle
+    
+    # --- Propriétés calculées ---
+    
+    @property
+    def is_exterior(self) -> bool:
+        """La porte donne-t-elle sur l'extérieur?"""
+        return self.room2_id is None or self.door_type == DoorType.ENTRY
+    
+    @property
+    def is_interior(self) -> bool:
+        """Porte intérieure entre deux pièces?"""
+        return self.room2_id is not None and self.door_type != DoorType.ENTRY
+    
+    @property
+    def is_sliding(self) -> bool:
+        """Est-ce une porte coulissante?"""
+        return self.door_type in [DoorType.SLIDING, DoorType.POCKET]
+    
+    @property
+    def swing_clearance(self) -> float:
+        """Débattement nécessaire pour l'ouverture (rayon du quart de cercle)."""
+        if self.is_sliding:
+            return 0.0
+        return self.width
+    
+    @property
+    def center_position(self) -> float:
+        """Position du centre de la porte."""
+        return self.position + self.width / 2
+    
+    # --- Méthodes ---
+    
     def connects(self, room_id: str) -> bool:
         """Vérifie si cette porte connecte la pièce spécifiée."""
         return room_id in (self.room1_id, self.room2_id)
-
+    
     def get_other_room(self, room_id: str) -> Optional[str]:
         """Retourne l'ID de l'autre pièce connectée."""
         if room_id == self.room1_id:
@@ -247,7 +400,65 @@ class DoorOpening:
         if room_id == self.room2_id:
             return self.room1_id
         return None
+    
+    def get_swing_room(self) -> Optional[str]:
+        """Retourne l'ID de la pièce où la porte s'ouvre (débattement)."""
+        if self.swing_direction == DoorSwingDirection.PUSH:
+            return self.room2_id
+        return self.room1_id
+    
+    def validate(self) -> Tuple[bool, List[str]]:
+        """Valide la configuration de la porte."""
+        warnings = []
+        
+        # Vérifier largeur PMR
+        if self.is_accessible and self.width < 0.90:
+            warnings.append(f"Largeur {self.width}m insuffisante pour PMR (min 0.90m)")
+        
+        # Vérifier type de poignée pour coulissantes
+        if self.is_sliding and self.handle_type == DoorHandleType.LEVER:
+            warnings.append("Poignée levier inadaptée pour porte coulissante")
+        
+        # Vérifier dimensions minimales
+        if self.width < 0.63:
+            warnings.append(f"Largeur {self.width}m trop petite (min 0.63m)")
+        
+        if self.height < 1.80:
+            warnings.append(f"Hauteur {self.height}m trop petite (min 1.80m)")
+        
+        return len(warnings) == 0, warnings
+    
+    def copy(self) -> 'DoorOpening':
+        """Retourne une copie de la porte."""
+        return DoorOpening(
+            id=self.id,
+            room1_id=self.room1_id,
+            room2_id=self.room2_id,
+            wall_side=self.wall_side,
+            position=self.position,
+            width=self.width,
+            height=self.height,
+            door_type=self.door_type,
+            swing_direction=self.swing_direction,
+            hinge_side=self.hinge_side,
+            style=self.style,
+            handle_type=self.handle_type,
+            opening_angle=self.opening_angle,
+            is_open=self.is_open,
+            has_lock=self.has_lock,
+            is_fire_rated=self.is_fire_rated,
+            is_accessible=self.is_accessible,
+            auto_generated=self.auto_generated
+        )
+    
+    def __repr__(self) -> str:
+        r2 = self.room2_id or "extérieur"
+        return f"Door[{self.id}] {self.room1_id} ↔ {r2} ({self.width}m)"
 
+
+# =============================================================================
+# PIÈCE
+# =============================================================================
 
 @dataclass
 class Room:
@@ -272,12 +483,15 @@ class Room:
     # Fenêtres attribuées
     windows: List[WindowOpening] = field(default_factory=list)
 
-    # Portes (références vers DoorOpening)
-    door_ids: List[int] = field(default_factory=list)
+    # Portes (IDs des DoorOpening)
+    door_ids: List[str] = field(default_factory=list)
 
     # État du placement
     is_placed: bool = False
-    placement_score: float = 0.0         # Score de qualité du placement
+    placement_score: float = 0.0
+    
+    # Flag pour mur extérieur
+    _has_exterior_wall: bool = False
 
     @property
     def room_type(self) -> Optional[RoomTypeDefinition]:
@@ -296,9 +510,8 @@ class Room:
 
     @property
     def has_exterior_wall(self) -> bool:
-        """La pièce a-t-elle un mur extérieur? (pour validation)"""
-        # Cette propriété sera mise à jour par le solver
-        return self._has_exterior_wall if hasattr(self, '_has_exterior_wall') else False
+        """La pièce a-t-elle un mur extérieur?"""
+        return self._has_exterior_wall
 
     @property
     def name(self) -> str:
@@ -306,14 +519,17 @@ class Room:
         room_def = self.room_type
         base_name = room_def.name if room_def else self.room_type_id
 
-        # Ajouter numéro si ID contient un suffixe
         if '_' in self.id:
             parts = self.id.rsplit('_', 1)
             if parts[-1].isdigit():
                 return f"{base_name} {parts[-1]}"
         return base_name
 
-    def validate_placement(self, building_bounds: Rectangle, wall_thickness: float = 0.20) -> Tuple[bool, List[str]]:
+    def validate_placement(
+        self, 
+        building_bounds: Rectangle, 
+        wall_thickness: float = 0.20
+    ) -> Tuple[bool, List[str]]:
         """
         Valide le placement de la pièce.
 
@@ -340,6 +556,7 @@ class Room:
         # Vérifier les dimensions minimales
         if self.bounds.width < room_def.min_width:
             warnings.append(f"Largeur insuffisante ({self.bounds.width:.2f}m < {room_def.min_width}m)")
+
         if self.bounds.depth < room_def.min_width:
             warnings.append(f"Profondeur insuffisante ({self.bounds.depth:.2f}m < {room_def.min_width}m)")
 
@@ -369,6 +586,7 @@ class Room:
         )
         new_room.windows = self.windows.copy()
         new_room.door_ids = self.door_ids.copy()
+        new_room._has_exterior_wall = self._has_exterior_wall
         return new_room
 
     def __repr__(self) -> str:
@@ -376,6 +594,10 @@ class Room:
         area_str = f"{self.area:.1f}m²" if self.bounds else "?"
         return f"Room[{status}] {self.name} ({area_str})"
 
+
+# =============================================================================
+# PLAN D'ÉTAGE
+# =============================================================================
 
 @dataclass
 class FloorPlan:
@@ -392,7 +614,7 @@ class FloorPlan:
     doors: List[DoorOpening] = field(default_factory=list)
 
     # Réservations spéciales
-    staircase_bounds: Optional[Rectangle] = None  # Zone escalier
+    staircase_bounds: Optional[Rectangle] = None
 
     # Épaisseur des murs
     exterior_wall_thickness: float = 0.20
@@ -416,12 +638,29 @@ class FloorPlan:
     def unplaced_rooms(self) -> List[Room]:
         """Retourne les pièces non placées."""
         return [r for r in self.rooms if not r.is_placed]
+    
+    @property
+    def interior_doors(self) -> List[DoorOpening]:
+        """Retourne les portes intérieures."""
+        return [d for d in self.doors if d.is_interior]
+    
+    @property
+    def exterior_doors(self) -> List[DoorOpening]:
+        """Retourne les portes extérieures (entrée)."""
+        return [d for d in self.doors if d.is_exterior]
 
     def get_room_by_id(self, room_id: str) -> Optional[Room]:
         """Trouve une pièce par son ID."""
         for room in self.rooms:
             if room.id == room_id:
                 return room
+        return None
+    
+    def get_door_by_id(self, door_id: str) -> Optional[DoorOpening]:
+        """Trouve une porte par son ID."""
+        for door in self.doors:
+            if door.id == door_id:
+                return door
         return None
 
     def get_adjacent_rooms(self, room: Room) -> List[Room]:
@@ -435,6 +674,10 @@ class FloorPlan:
                 if room.bounds.touches(other.bounds):
                     adjacent.append(other)
         return adjacent
+    
+    def get_doors_for_room(self, room_id: str) -> List[DoorOpening]:
+        """Retourne toutes les portes connectées à une pièce."""
+        return [d for d in self.doors if d.connects(room_id)]
 
     def get_rooms_on_exterior(self, side: WallSide) -> List[Room]:
         """Retourne les pièces ayant un mur sur le côté extérieur spécifié."""
@@ -455,7 +698,6 @@ class FloorPlan:
 
         for room in self.placed_rooms:
             for adjacent in self.get_adjacent_rooms(room):
-                # Éviter de compter deux fois
                 pair = tuple(sorted([room.id, adjacent.id]))
                 if pair not in checked_pairs:
                     checked_pairs.add(pair)
@@ -502,15 +744,28 @@ class FloorPlan:
         # Vérifier l'accessibilité (chaque pièce doit avoir une porte)
         for room in self.placed_rooms:
             if room.room_type_id not in ['ENTREE', 'COULOIR']:
-                if not room.door_ids:
+                room_doors = self.get_doors_for_room(room.id)
+                if not room_doors:
+                    is_valid = False
                     messages.append(f"{room.name}: pas de porte d'accès")
+        
+        # Valider chaque porte
+        for door in self.doors:
+            door_valid, door_warnings = door.validate()
+            if not door_valid:
+                is_valid = False
+            messages.extend([f"Porte {door.id}: {w}" for w in door_warnings])
 
         return is_valid, messages
 
     def __repr__(self) -> str:
         floor_name = "RDC" if self.floor == 0 else f"Étage {self.floor}"
-        return f"FloorPlan({floor_name}, {len(self.rooms)} pièces, {self.bounds.area:.1f}m²)"
+        return f"FloorPlan({floor_name}, {len(self.rooms)} pièces, {len(self.doors)} portes)"
 
+
+# =============================================================================
+# PLAN DE MAISON (MULTI-ÉTAGES)
+# =============================================================================
 
 @dataclass
 class HousePlan:
@@ -521,9 +776,9 @@ class HousePlan:
     floors: List[FloorPlan] = field(default_factory=list)
 
     # Dimensions globales
-    width: float = 0.0       # Dimension X
-    depth: float = 0.0       # Dimension Y
-    floor_height: float = 2.50  # Hauteur sous plafond
+    width: float = 0.0
+    depth: float = 0.0
+    floor_height: float = 2.50
 
     @property
     def num_floors(self) -> int:
@@ -538,6 +793,13 @@ class HousePlan:
         result = []
         for floor in self.floors:
             result.extend(floor.rooms)
+        return result
+    
+    @property
+    def all_doors(self) -> List[DoorOpening]:
+        result = []
+        for floor in self.floors:
+            result.extend(floor.doors)
         return result
 
     def get_floor(self, floor_num: int) -> Optional[FloorPlan]:
