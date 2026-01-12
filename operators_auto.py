@@ -2095,7 +2095,10 @@ class HOUSE_OT_generate_auto(Operator):
 
         # Position de la porte (centre du mur avant)
         door_x = width / 2 - door_width / 2
-        door_y = 0  # Sur le mur avant
+        # ✅ FIX: Décaler la porte vers l'extérieur pour qu'elle soit visible
+        # La porte a son épaisseur centrée sur Y=0 en local, donc on la décale
+        # de la moitié de l'épaisseur du mur pour qu'elle soit sur la face extérieure
+        door_y = -0.02  # Légèrement vers l'extérieur (face avant visible)
         door_z = 0  # Au niveau du sol
 
         # Récupérer les options de style
@@ -2145,10 +2148,9 @@ class HOUSE_OT_generate_auto(Operator):
             wall_thickness = getattr(props, 'wall_thickness', 0.20)
 
             # Position de la porte arrière (centre du mur arrière)
-            # Le mur arrière est à Y = length, la porte doit être positionnée
-            # à l'intérieur du mur (soustraire l'épaisseur)
+            # ✅ FIX: Positionner la porte sur la face extérieure du mur arrière
             back_door_x = width / 2 - door_width / 2
-            back_door_y = length - wall_thickness  # Position intérieure du mur arrière
+            back_door_y = length + 0.02  # Légèrement vers l'extérieur (face avant visible)
             back_door_z = 0
 
             print(f"[House] Position porte arrière: x={back_door_x:.2f}, y={back_door_y:.2f}, length={length}")
