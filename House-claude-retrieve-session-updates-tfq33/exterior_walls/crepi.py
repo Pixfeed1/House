@@ -1,0 +1,886 @@
+"""
+CRÉPI / ENDUIT EXTÉRIEUR
+=========================
+Générateur de finitions extérieures en crépi/enduit pour les façades.
+
+Adapté du script universel pour l'intégration dans l'extension House.
+Compatible avec murs simples et briques 3D.
+Gère automatiquement les ouvertures (portes et fenêtres).
+
+✅ FIX: Correction axes Y/Z pour orientation verticale correcte
+✅ NEW: Support des ouvertures (fenêtres/portes) - génération autour des trous
+
+Blender 4.2+
+"""
+
+import bpy
+import bmesh
+import math
+import random
+from mathutils import Vector, noise, Matrix
+
+
+# =================================================================
+# PRESETS COULEUR CRÉPI
+# =================================================================
+
+CREPI_COLOR_PRESETS = {
+    'BLANC': (0.92, 0.91, 0.89),
+    'BLANC_CASSE': (0.90, 0.87, 0.82),
+    'IVOIRE': (0.88, 0.85, 0.78),
+    'SABLE': (0.82, 0.76, 0.65),
+    'BEIGE': (0.78, 0.72, 0.62),
+    'OCRE': (0.80, 0.68, 0.45),
+    'TERRE': (0.60, 0.48, 0.38),
+    'ROSE': (0.85, 0.75, 0.72),
+    'PECHE': (0.88, 0.78, 0.68),
+    'TERRACOTTA': (0.72, 0.48, 0.35),
+    'GRIS_CLAIR': (0.75, 0.74, 0.72),
+    'GRIS': (0.55, 0.54, 0.52),
+    'GRIS_ANTHRACITE': (0.25, 0.25, 0.26),
+    'TAUPE': (0.48, 0.44, 0.40),
+}
+
+
+# =================================================================
+# CLASSE PRINCIPALE
+# =================================================================
+
+class ExteriorCrepi:
+    """Générateur de crépi/enduit pour façades extérieures"""
+
+    def __init__(self,
+                 plaster_type='GRATTE',
+                 color_preset='BLANC_CASSE',
+                 custom_color=None,
+                 grain_size=0.5,
+                 grain_intensity=0.5,
+                 color_variation=0.08,
+                 dirt=0.1,
+                 water_stains=0.05,
+                 moss=0.0,
+                 cracks=0.05,
+                 aging=0.1,
+                 random_seed=42,
+                 # ✅ NOUVEAU: Ouvertures (fenêtres/portes)
+                 openings=None):
+        """
+        Initialise le générateur de crépi.
+
+        Args:
+            plaster_type: Type de crépi (GRATTE, TALOCHE, RIBBE, ECRASE, PROJETE, LISSE)
+            color_preset: Preset de couleur ou 'CUSTOM'
+            custom_color: Couleur RGB personnalisée si color_preset='CUSTOM'
+            grain_size: Taille du grain (0.1 - 1.0)
+            grain_intensity: Intensité du relief (0.0 - 1.0)
+            color_variation: Variation de teinte (0.0 - 0.3)
+            dirt: Niveau de salissures (0.0 - 1.0)
+            water_stains: Traces d'eau (0.0 - 1.0)
+            moss: Mousse/algues (0.0 - 1.0)
+            cracks: Fissures (0.0 - 1.0)
+            aging: Vieillissement (0.0 - 1.0)
+            random_seed: Seed pour variation aléatoire
+            openings: Liste des ouvertures (fenêtres/portes) à éviter
+        """
+        self.plaster_type = plaster_type
+        self.color_preset = color_preset
+        self.custom_color = custom_color
+        self.grain_size = grain_size
+        self.grain_intensity = grain_intensity
+        self.color_variation = color_variation
+        self.dirt = dirt
+        self.water_stains = water_stains
+        self.moss = moss
+        self.cracks = cracks
+        self.aging = aging
+        self.random_seed = random_seed
+
+        # ✅ NOUVEAU: Stocker les ouvertures BRUTES (normalisées dans generate_for_wall)
+        self._raw_openings = openings or []
+        self.openings = []  # Sera rempli dans generate_for_wall
+
+        # Déterminer la couleur finale
+        if color_preset == 'CUSTOM' and custom_color:
+            self.base_color = custom_color
+        else:
+            self.base_color = CREPI_COLOR_PRESETS.get(color_preset, CREPI_COLOR_PRESETS['BLANC_CASSE'])
+
+        print(f"[ExteriorCrepi] Type: {plaster_type}, Couleur: {color_preset}")
+        print(f"[ExteriorCrepi] Ouvertures brutes reçues: {len(self._raw_openings)}")
+        for i, op in enumerate(self._raw_openings):
+            print(f"  [{i}] wall={op.get('wall')}, type={op.get('type')}, x={op.get('x'):.2f}, z={op.get('z'):.2f}, {op.get('width'):.2f}x{op.get('height'):.2f}m")
+
+    def _normalize_openings(self, openings):
+        """
+        Normalise les ouvertures en coordonnées locales du mur.
+        
+        Les ouvertures arrivent avec des coordonnées globales (world).
+        On les convertit en coordonnées locales du mesh de crépi.
+        
+        ✅ IMPORTANT: Le crépi est créé avec des coordonnées locales (0 → wall_width),
+        puis l'objet est positionné et rotaté. Les coordonnées des ouvertures doivent
+        tenir compte de ces transformations :
+        
+        - FRONT: rotation 0° → coordonnées directes
+        - BACK: rotation 180° → X inversé
+        - LEFT: rotation 90° → Y devient X (direct)
+        - RIGHT: rotation -90° → Y devient X, inversé
+        """
+        normalized = []
+        
+        # Récupérer wall_width depuis l'instance (sera défini dans generate_for_wall)
+        wall_width = getattr(self, 'wall_width', 10.0)
+        
+        for op in openings:
+            wall = op.get('wall', '')
+            op_width = op.get('width', 0)
+            op_height = op.get('height', 0)
+            op_depth = op.get('depth', op_width)
+            
+            if wall == 'front':
+                normalized.append({
+                    'x': op.get('x', 0),
+                    'z': op.get('z', 0),
+                    'width': op_width,
+                    'height': op_height,
+                    'type': op.get('type', 'window')
+                })
+            elif wall == 'back':
+                # Rotation 180° → X inversé
+                x_world = op.get('x', 0)
+                x_local = wall_width - x_world - op_width
+                normalized.append({
+                    'x': x_local,
+                    'z': op.get('z', 0),
+                    'width': op_width,
+                    'height': op_height,
+                    'type': op.get('type', 'window')
+                })
+            elif wall == 'left':
+                # Rotation 90° → Y devient X (direct)
+                normalized.append({
+                    'x': op.get('y', 0),
+                    'z': op.get('z', 0),
+                    'width': op_depth,
+                    'height': op_height,
+                    'type': op.get('type', 'window')
+                })
+            elif wall == 'right':
+                # Rotation -90° → Y devient X, inversé
+                y_world = op.get('y', 0)
+                x_local = wall_width - y_world - op_depth
+                normalized.append({
+                    'x': x_local,
+                    'z': op.get('z', 0),
+                    'width': op_depth,
+                    'height': op_height,
+                    'type': op.get('type', 'window')
+                })
+        
+        return normalized
+
+    def generate_for_wall(self, wall_obj, wall_width, wall_height, wall_thickness, orientation='front'):
+        """
+        Génère le crépi pour un mur existant.
+
+        Args:
+            wall_obj: Objet mur existant (ou None pour créer nouveau)
+            wall_width: Largeur du mur
+            wall_height: Hauteur du mur
+            wall_thickness: Épaisseur du mur
+            orientation: Orientation ('front', 'back', 'left', 'right')
+
+        Returns:
+            Objet Blender avec le crépi appliqué
+        """
+        random.seed(self.random_seed)
+
+        # Stocker les dimensions pour utilisation dans les méthodes
+        self.wall_width = wall_width
+        self.wall_height = wall_height
+
+        # ✅ Normaliser les ouvertures maintenant qu'on connaît wall_width
+        self.openings = self._normalize_openings(self._raw_openings)
+
+        # Si le mur existe déjà (briques 3D), on applique juste le matériau
+        if wall_obj and wall_obj.data:
+            print(f"[ExteriorCrepi] Application sur mur existant ({orientation})")
+            mat = self.create_plaster_material(f"Crepi_{orientation}")
+
+            # Remplacer ou ajouter le matériau
+            if len(wall_obj.data.materials) > 0:
+                wall_obj.data.materials[0] = mat
+            else:
+                wall_obj.data.materials.append(mat)
+
+            return wall_obj
+
+        # Sinon, créer un plan de crépi (pour murs simples)
+        print(f"[ExteriorCrepi] ====== CRÉATION CRÉPI {orientation.upper()} ======")
+        print(f"[ExteriorCrepi] Dimensions: {wall_width:.2f}m × {wall_height:.2f}m")
+        print(f"[ExteriorCrepi] Ouvertures normalisées: {len(self.openings)}")
+        if self.openings:
+            for op in self.openings:
+                print(f"  ✅ TROU: {op.get('type', 'unknown')} à x={op['x']:.2f}, z={op['z']:.2f}, {op['width']:.2f}x{op['height']:.2f}m")
+        else:
+            print(f"  ⚠️ AUCUNE OUVERTURE - Le crépi sera plein!")
+        obj = self.create_crepi_plane(wall_width, wall_height, wall_thickness, orientation)
+
+        mat = self.create_plaster_material(f"Crepi_{orientation}")
+        obj.data.materials.append(mat)
+
+        return obj
+
+    # =================================================================
+    # GÉNÉRATION DU MESH AVEC OUVERTURES
+    # =================================================================
+
+    def create_crepi_plane(self, width, height, thickness, orientation):
+        """
+        Crée un plan de crépi avec relief pour murs simples.
+        Gère les ouvertures en générant des segments autour des trous.
+        """
+
+        bm = bmesh.new()
+
+        if self.openings:
+            # Générer des segments autour des ouvertures
+            self._create_segments_around_openings(bm, width, height)
+        else:
+            # Pas d'ouvertures : créer un plan simple
+            self._create_simple_plane(bm, width, height)
+
+        # Appliquer relief du crépi
+        self.apply_plaster_displacement(bm, width, height)
+
+        # Calculer normales
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+
+        # Créer mesh
+        mesh = bpy.data.meshes.new(f"Crepi_Plane_{orientation}")
+        bm.to_mesh(mesh)
+        bm.free()
+
+        # Smooth shading
+        for poly in mesh.polygons:
+            poly.use_smooth = True
+
+        # Créer objet
+        obj = bpy.data.objects.new(f"Crepi_{orientation}", mesh)
+
+        return obj
+
+    def _create_simple_plane(self, bm, width, height):
+        """Crée un plan simple sans ouvertures"""
+        
+        # Subdivisions adaptées pour le relief
+        sub_x = max(8, int(32 * (width / max(width, height))))
+        sub_z = max(8, int(32 * (height / max(width, height))))
+
+        # Créer les vertices directement dans le bon plan (XZ vertical)
+        for iz in range(sub_z + 1):
+            for ix in range(sub_x + 1):
+                x = (ix / sub_x) * width
+                z = (iz / sub_z) * height
+                y = 0  # Profondeur de base
+                bm.verts.new((x, y, z))
+
+        bm.verts.ensure_lookup_table()
+
+        # Créer les faces
+        for iz in range(sub_z):
+            for ix in range(sub_x):
+                idx = iz * (sub_x + 1) + ix
+                v0 = bm.verts[idx]
+                v1 = bm.verts[idx + 1]
+                v2 = bm.verts[idx + sub_x + 2]
+                v3 = bm.verts[idx + sub_x + 1]
+                bm.faces.new([v0, v1, v2, v3])
+
+    def _create_segments_around_openings(self, bm, width, height):
+        """
+        Crée des segments de crépi autour des ouvertures.
+        
+        Stratégie: Découper le mur en bandes horizontales,
+        puis découper chaque bande autour des ouvertures.
+        """
+        
+        # Collecter tous les niveaux Z (bas et haut de chaque ouverture)
+        z_levels = [0, height]
+        for op in self.openings:
+            z_levels.append(op['z'])
+            z_levels.append(op['z'] + op['height'])
+        
+        # Trier et dédupliquer
+        z_levels = sorted(set(z_levels))
+        
+        # Pour chaque bande horizontale
+        for i in range(len(z_levels) - 1):
+            z_bottom = z_levels[i]
+            z_top = z_levels[i + 1]
+            band_height = z_top - z_bottom
+            
+            if band_height < 0.01:  # Ignorer les bandes trop petites
+                continue
+            
+            # Trouver les ouvertures qui intersectent cette bande
+            intersecting = []
+            for op in self.openings:
+                op_bottom = op['z']
+                op_top = op['z'] + op['height']
+                
+                # L'ouverture intersecte si elle chevauche la bande
+                if op_bottom < z_top and op_top > z_bottom:
+                    intersecting.append(op)
+            
+            # Générer les segments pour cette bande
+            self._create_band_segments(bm, width, z_bottom, z_top, intersecting)
+
+    def _create_band_segments(self, bm, width, z_bottom, z_top, openings):
+        """
+        Crée les segments d'une bande horizontale en évitant les ouvertures.
+        """
+        
+        band_height = z_top - z_bottom
+        
+        if not openings:
+            # Pas d'ouvertures dans cette bande : créer un rectangle plein
+            self._create_rect_segment(bm, 0, width, z_bottom, z_top)
+            return
+        
+        # Collecter les "trous" horizontaux dans cette bande
+        holes = []
+        for op in openings:
+            holes.append((op['x'], op['x'] + op['width']))
+        
+        # Trier par position X
+        holes.sort(key=lambda h: h[0])
+        
+        # Fusionner les trous qui se chevauchent
+        merged_holes = []
+        for hole in holes:
+            if merged_holes and hole[0] <= merged_holes[-1][1]:
+                merged_holes[-1] = (merged_holes[-1][0], max(merged_holes[-1][1], hole[1]))
+            else:
+                merged_holes.append(hole)
+        
+        # Générer les segments entre les trous
+        current_x = 0
+        for hole_start, hole_end in merged_holes:
+            # Segment avant le trou
+            if current_x < hole_start:
+                seg_width = hole_start - current_x
+                if seg_width > 0.02:  # Minimum 2cm
+                    self._create_rect_segment(bm, current_x, hole_start, z_bottom, z_top)
+            
+            current_x = hole_end
+        
+        # Segment final après tous les trous
+        if current_x < width:
+            seg_width = width - current_x
+            if seg_width > 0.02:
+                self._create_rect_segment(bm, current_x, width, z_bottom, z_top)
+
+    def _create_rect_segment(self, bm, x_start, x_end, z_bottom, z_top):
+        """
+        Crée un segment rectangulaire de crépi avec subdivision.
+        
+        Args:
+            bm: BMesh
+            x_start: Position X de début
+            x_end: Position X de fin
+            z_bottom: Position Z basse
+            z_top: Position Z haute
+        """
+        
+        seg_width = x_end - x_start
+        seg_height = z_top - z_bottom
+        
+        if seg_width < 0.01 or seg_height < 0.01:
+            return
+        
+        # Subdivisions adaptées à la taille du segment
+        sub_x = max(2, int(8 * seg_width / max(self.wall_width, 1)))
+        sub_z = max(2, int(8 * seg_height / max(self.wall_height, 1)))
+        
+        # Stocker l'index de départ des vertices
+        vert_start_idx = len(bm.verts)
+        
+        # Créer les vertices
+        for iz in range(sub_z + 1):
+            for ix in range(sub_x + 1):
+                x = x_start + (ix / sub_x) * seg_width
+                z = z_bottom + (iz / sub_z) * seg_height
+                y = 0
+                bm.verts.new((x, y, z))
+        
+        bm.verts.ensure_lookup_table()
+        
+        # Créer les faces
+        for iz in range(sub_z):
+            for ix in range(sub_x):
+                idx = vert_start_idx + iz * (sub_x + 1) + ix
+                v0 = bm.verts[idx]
+                v1 = bm.verts[idx + 1]
+                v2 = bm.verts[idx + sub_x + 2]
+                v3 = bm.verts[idx + sub_x + 1]
+                try:
+                    bm.faces.new([v0, v1, v2, v3])
+                except:
+                    pass
+
+    def apply_plaster_displacement(self, bm, width, height):
+        """
+        Applique le relief du crépi au mesh.
+        
+        ✅ FIX: Déplacement sur l'axe Y (profondeur/normal du mur)
+        """
+
+        intensity = self.grain_intensity * 0.003
+        scale = 50.0 / self.grain_size
+
+        for v in bm.verts:
+            # Position pour le noise - utilise X et Z (plan vertical)
+            pos = Vector((v.co.x * scale, v.co.z * scale, self.random_seed))
+
+            if self.plaster_type == 'GRATTE':
+                # Gratté : noise + stries horizontales
+                n = noise.noise(pos) * 0.7
+                n += noise.noise(Vector((v.co.x * 200, v.co.z * 20, self.random_seed))) * 0.3
+
+            elif self.plaster_type == 'TALOCHE':
+                # Taloché : noise lisse
+                n = noise.noise(Vector((pos.x * 0.5, pos.y * 0.5, pos.z)))
+
+            elif self.plaster_type == 'RIBBE':
+                # Ribbé : stries verticales
+                n = math.sin(v.co.x * scale * 0.8) * 0.5
+                n += noise.noise(pos) * 0.5
+
+            elif self.plaster_type == 'ECRASE':
+                # Écrasé : motif aplati irrégulier
+                n = noise.noise(pos) * 0.6
+                n += noise.noise(Vector((pos.x * 0.3, pos.y * 0.3, pos.z))) * 0.4
+
+            elif self.plaster_type == 'PROJETE':
+                # Projeté : très rugueux
+                n = noise.noise(pos)
+                n += noise.noise(Vector((pos.x * 2, pos.y * 2, pos.z))) * 0.5
+                intensity *= 1.5
+
+            else:  # LISSE
+                # Lisse : très peu de relief
+                n = noise.noise(Vector((pos.x * 0.3, pos.y * 0.3, pos.z)))
+                intensity *= 0.3
+
+            # ✅ FIX: Déplacement en Y (profondeur/normal du mur)
+            v.co.y += n * intensity
+
+    # =================================================================
+    # CRÉATION DU MATÉRIAU
+    # =================================================================
+
+    def create_plaster_material(self, mat_name):
+        """Crée le shader de crépi universel"""
+
+        mat = bpy.data.materials.new(name=mat_name)
+        mat.use_nodes = True
+
+        nodes = mat.node_tree.nodes
+        links = mat.node_tree.links
+        nodes.clear()
+
+        x = -2200
+        y = 400
+
+        # === OUTPUT ===
+        output = nodes.new('ShaderNodeOutputMaterial')
+        output.location = (800, 0)
+
+        # === PRINCIPLED BSDF ===
+        principled = nodes.new('ShaderNodeBsdfPrincipled')
+        principled.location = (500, 0)
+        principled.inputs['Roughness'].default_value = self.get_base_roughness()
+
+        # Blender 4.2 compatible
+        try:
+            principled.inputs['IOR'].default_value = 1.45
+        except KeyError:
+            pass
+
+        try:
+            principled.inputs['Specular IOR Level'].default_value = 0.3
+        except KeyError:
+            try:
+                principled.inputs['Specular'].default_value = 0.3
+            except KeyError:
+                pass
+
+        links.new(principled.outputs['BSDF'], output.inputs['Surface'])
+
+        # === COORDONNÉES ===
+        tex_coord = nodes.new('ShaderNodeTexCoord')
+        tex_coord.location = (x, y)
+
+        mapping = nodes.new('ShaderNodeMapping')
+        mapping.location = (x + 200, y)
+        mapping.inputs['Location'].default_value = (
+            self.random_seed * 4.7,
+            self.random_seed * 7.3,
+            self.random_seed * 2.9
+        )
+
+        links.new(tex_coord.outputs['Object'], mapping.inputs['Vector'])
+
+        # === COULEUR DE BASE (EXPOSÉE) ===
+        base_col = nodes.new('ShaderNodeRGB')
+        base_col.location = (x + 400, y + 400)
+        base_col.outputs[0].default_value = (*self.base_color, 1.0)
+        base_col.label = "🎨 COULEUR CRÉPI"
+
+        # === TEXTURE DU GRAIN ===
+        grain_scale = 60.0 / self.grain_size
+
+        grain_noise = nodes.new('ShaderNodeTexNoise')
+        grain_noise.location = (x + 400, y)
+        grain_noise.inputs['Scale'].default_value = grain_scale
+        grain_noise.inputs['Detail'].default_value = 8.0
+        grain_noise.inputs['Roughness'].default_value = 0.7
+        grain_noise.inputs['Distortion'].default_value = 0.3
+
+        links.new(mapping.outputs['Vector'], grain_noise.inputs['Vector'])
+
+        # Texture spécifique selon le type
+        grain_output, type_texture = self.create_type_texture(nodes, links, mapping, grain_noise, x, y, grain_scale)
+
+        # === VARIATION DE COULEUR ===
+        color_var_noise = nodes.new('ShaderNodeTexNoise')
+        color_var_noise.location = (x + 400, y + 200)
+        color_var_noise.inputs['Scale'].default_value = 3.0
+        color_var_noise.inputs['Detail'].default_value = 4.0
+        color_var_noise.inputs['Roughness'].default_value = 0.5
+
+        links.new(mapping.outputs['Vector'], color_var_noise.inputs['Vector'])
+
+        color_var_mix = nodes.new('ShaderNodeMix')
+        color_var_mix.location = (x + 800, y + 350)
+        color_var_mix.data_type = 'RGBA'
+        color_var_mix.blend_type = 'OVERLAY'
+        color_var_mix.inputs['Factor'].default_value = self.color_variation
+
+        links.new(base_col.outputs[0], color_var_mix.inputs['A'])
+        links.new(color_var_noise.outputs['Color'], color_var_mix.inputs['B'])
+
+        current_color = color_var_mix.outputs['Result']
+
+        # === IMPERFECTIONS ===
+        current_color = self.add_imperfections(nodes, links, mapping, current_color, x, y)
+
+        # Connecter couleur finale
+        links.new(current_color, principled.inputs['Base Color'])
+
+        # === ROUGHNESS ===
+        self.add_roughness_variation(nodes, links, mapping, principled, x, y)
+
+        # === BUMP ===
+        self.add_bump(nodes, links, mapping, grain_output, principled, x, y)
+
+        return mat
+
+    def create_type_texture(self, nodes, links, mapping, grain_noise, x, y, grain_scale):
+        """Crée la texture spécifique au type de crépi"""
+
+        if self.plaster_type == 'GRATTE':
+            # Stries horizontales
+            wave = nodes.new('ShaderNodeTexWave')
+            wave.location = (x + 400, y - 200)
+            wave.wave_type = 'BANDS'
+            wave.bands_direction = 'X'
+            wave.wave_profile = 'SAW'
+            wave.inputs['Scale'].default_value = grain_scale * 0.3
+            wave.inputs['Distortion'].default_value = 5.0
+            wave.inputs['Detail'].default_value = 2.0
+
+            links.new(mapping.outputs['Vector'], wave.inputs['Vector'])
+
+            grain_mix = nodes.new('ShaderNodeMix')
+            grain_mix.location = (x + 600, y - 100)
+            grain_mix.data_type = 'FLOAT'
+            grain_mix.inputs['Factor'].default_value = 0.5
+
+            links.new(grain_noise.outputs['Fac'], grain_mix.inputs['A'])
+            links.new(wave.outputs['Fac'], grain_mix.inputs['B'])
+
+            return grain_mix.outputs['Result'], wave
+
+        elif self.plaster_type == 'RIBBE':
+            # Stries verticales
+            wave = nodes.new('ShaderNodeTexWave')
+            wave.location = (x + 400, y - 200)
+            wave.wave_type = 'BANDS'
+            wave.bands_direction = 'Z'
+            wave.wave_profile = 'SIN'
+            wave.inputs['Scale'].default_value = grain_scale * 0.4
+            wave.inputs['Distortion'].default_value = 2.0
+
+            links.new(mapping.outputs['Vector'], wave.inputs['Vector'])
+
+            grain_mix = nodes.new('ShaderNodeMix')
+            grain_mix.location = (x + 600, y - 100)
+            grain_mix.data_type = 'FLOAT'
+            grain_mix.inputs['Factor'].default_value = 0.5
+
+            links.new(grain_noise.outputs['Fac'], grain_mix.inputs['A'])
+            links.new(wave.outputs['Fac'], grain_mix.inputs['B'])
+
+            return grain_mix.outputs['Result'], wave
+
+        elif self.plaster_type == 'PROJETE':
+            # Voronoi projeté
+            voronoi = nodes.new('ShaderNodeTexVoronoi')
+            voronoi.location = (x + 400, y - 200)
+            voronoi.voronoi_dimensions = '3D'
+            voronoi.feature = 'F1'
+            voronoi.inputs['Scale'].default_value = grain_scale * 1.5
+            voronoi.inputs['Randomness'].default_value = 1.0
+
+            links.new(mapping.outputs['Vector'], voronoi.inputs['Vector'])
+
+            grain_mix = nodes.new('ShaderNodeMix')
+            grain_mix.location = (x + 600, y - 100)
+            grain_mix.data_type = 'FLOAT'
+            grain_mix.inputs['Factor'].default_value = 0.6
+
+            links.new(grain_noise.outputs['Fac'], grain_mix.inputs['A'])
+            links.new(voronoi.outputs['Distance'], grain_mix.inputs['B'])
+
+            return grain_mix.outputs['Result'], voronoi
+
+        elif self.plaster_type == 'ECRASE':
+            # Voronoi écrasé
+            voronoi = nodes.new('ShaderNodeTexVoronoi')
+            voronoi.location = (x + 400, y - 200)
+            voronoi.voronoi_dimensions = '3D'
+            voronoi.feature = 'SMOOTH_F1'
+            voronoi.inputs['Scale'].default_value = grain_scale * 0.8
+            voronoi.inputs['Smoothness'].default_value = 0.5
+
+            links.new(mapping.outputs['Vector'], voronoi.inputs['Vector'])
+
+            grain_mix = nodes.new('ShaderNodeMix')
+            grain_mix.location = (x + 600, y - 100)
+            grain_mix.data_type = 'FLOAT'
+            grain_mix.inputs['Factor'].default_value = 0.5
+
+            links.new(grain_noise.outputs['Fac'], grain_mix.inputs['A'])
+            links.new(voronoi.outputs['Distance'], grain_mix.inputs['B'])
+
+            return grain_mix.outputs['Result'], voronoi
+
+        else:  # TALOCHE ou LISSE
+            return grain_noise.outputs['Fac'], grain_noise
+
+    def add_imperfections(self, nodes, links, mapping, current_color, x, y):
+        """Ajoute les imperfections (salissures, eau, mousse, vieillissement)"""
+
+        # Salissures
+        if self.dirt > 0:
+            dirt_noise = nodes.new('ShaderNodeTexNoise')
+            dirt_noise.location = (x + 600, y - 400)
+            dirt_noise.inputs['Scale'].default_value = 2.0
+            dirt_noise.inputs['Detail'].default_value = 6.0
+            dirt_noise.inputs['Roughness'].default_value = 0.8
+
+            links.new(mapping.outputs['Vector'], dirt_noise.inputs['Vector'])
+
+            dirt_color = nodes.new('ShaderNodeRGB')
+            dirt_color.location = (x + 800, y - 400)
+            dirt_color.outputs[0].default_value = (0.15, 0.14, 0.12, 1.0)
+
+            dirt_mix = nodes.new('ShaderNodeMix')
+            dirt_mix.location = (x + 1000, y + 300)
+            dirt_mix.data_type = 'RGBA'
+
+            dirt_intensity = nodes.new('ShaderNodeMath')
+            dirt_intensity.location = (x + 800, y - 300)
+            dirt_intensity.operation = 'MULTIPLY'
+            dirt_intensity.inputs[1].default_value = self.dirt * 0.4
+
+            links.new(dirt_noise.outputs['Fac'], dirt_intensity.inputs[0])
+            links.new(dirt_intensity.outputs['Value'], dirt_mix.inputs['Factor'])
+            links.new(current_color, dirt_mix.inputs['A'])
+            links.new(dirt_color.outputs[0], dirt_mix.inputs['B'])
+
+            current_color = dirt_mix.outputs['Result']
+
+        # Traces d'eau
+        if self.water_stains > 0:
+            water_noise = nodes.new('ShaderNodeTexNoise')
+            water_noise.location = (x + 600, y - 600)
+            water_noise.inputs['Scale'].default_value = 5.0
+            water_noise.inputs['Detail'].default_value = 3.0
+            water_noise.inputs['Distortion'].default_value = 3.0
+
+            links.new(mapping.outputs['Vector'], water_noise.inputs['Vector'])
+
+            gradient = nodes.new('ShaderNodeTexGradient')
+            gradient.location = (x + 600, y - 750)
+            gradient.gradient_type = 'LINEAR'
+
+            gradient_mapping = nodes.new('ShaderNodeMapping')
+            gradient_mapping.location = (x + 400, y - 750)
+            gradient_mapping.inputs['Rotation'].default_value = (0, 0, math.radians(90))
+
+            links.new(mapping.outputs['Vector'], gradient_mapping.inputs['Vector'])
+            links.new(gradient_mapping.outputs['Vector'], gradient.inputs['Vector'])
+
+            water_combine = nodes.new('ShaderNodeMath')
+            water_combine.location = (x + 800, y - 650)
+            water_combine.operation = 'MULTIPLY'
+
+            links.new(water_noise.outputs['Fac'], water_combine.inputs[0])
+            links.new(gradient.outputs['Fac'], water_combine.inputs[1])
+
+            water_color = nodes.new('ShaderNodeRGB')
+            water_color.location = (x + 800, y - 800)
+            water_color.outputs[0].default_value = (0.25, 0.23, 0.20, 1.0)
+
+            water_mix = nodes.new('ShaderNodeMix')
+            water_mix.location = (x + 1200, y + 250)
+            water_mix.data_type = 'RGBA'
+
+            water_intensity = nodes.new('ShaderNodeMath')
+            water_intensity.location = (x + 1000, y - 650)
+            water_intensity.operation = 'MULTIPLY'
+            water_intensity.inputs[1].default_value = self.water_stains * 0.5
+
+            links.new(water_combine.outputs['Value'], water_intensity.inputs[0])
+            links.new(water_intensity.outputs['Value'], water_mix.inputs['Factor'])
+            links.new(current_color, water_mix.inputs['A'])
+            links.new(water_color.outputs[0], water_mix.inputs['B'])
+
+            current_color = water_mix.outputs['Result']
+
+        # Mousse
+        if self.moss > 0:
+            moss_noise = nodes.new('ShaderNodeTexNoise')
+            moss_noise.location = (x + 600, y - 900)
+            moss_noise.inputs['Scale'].default_value = 8.0
+            moss_noise.inputs['Detail'].default_value = 5.0
+
+            links.new(mapping.outputs['Vector'], moss_noise.inputs['Vector'])
+
+            moss_color = nodes.new('ShaderNodeRGB')
+            moss_color.location = (x + 800, y - 950)
+            moss_color.outputs[0].default_value = (0.15, 0.22, 0.10, 1.0)
+
+            moss_mix = nodes.new('ShaderNodeMix')
+            moss_mix.location = (x + 1400, y + 200)
+            moss_mix.data_type = 'RGBA'
+
+            moss_intensity = nodes.new('ShaderNodeMath')
+            moss_intensity.location = (x + 1000, y - 900)
+            moss_intensity.operation = 'MULTIPLY'
+            moss_intensity.inputs[1].default_value = self.moss * 0.6
+
+            links.new(moss_noise.outputs['Fac'], moss_intensity.inputs[0])
+            links.new(moss_intensity.outputs['Value'], moss_mix.inputs['Factor'])
+            links.new(current_color, moss_mix.inputs['A'])
+            links.new(moss_color.outputs[0], moss_mix.inputs['B'])
+
+            current_color = moss_mix.outputs['Result']
+
+        # Vieillissement
+        if self.aging > 0:
+            age_darken = nodes.new('ShaderNodeMix')
+            age_darken.location = (x + 1600, y + 150)
+            age_darken.data_type = 'RGBA'
+            age_darken.blend_type = 'MULTIPLY'
+            age_darken.inputs['Factor'].default_value = self.aging * 0.3
+
+            age_color = nodes.new('ShaderNodeRGB')
+            age_color.location = (x + 1400, y + 50)
+            age_color.outputs[0].default_value = (0.8, 0.78, 0.75, 1.0)
+
+            links.new(current_color, age_darken.inputs['A'])
+            links.new(age_color.outputs[0], age_darken.inputs['B'])
+
+            current_color = age_darken.outputs['Result']
+
+        return current_color
+
+    def add_roughness_variation(self, nodes, links, mapping, principled, x, y):
+        """Ajoute variation de roughness"""
+
+        rough_base = self.get_base_roughness()
+
+        rough_noise = nodes.new('ShaderNodeTexNoise')
+        rough_noise.location = (x + 1000, y - 200)
+        rough_noise.inputs['Scale'].default_value = 40.0
+        rough_noise.inputs['Detail'].default_value = 5.0
+
+        links.new(mapping.outputs['Vector'], rough_noise.inputs['Vector'])
+
+        rough_map = nodes.new('ShaderNodeMapRange')
+        rough_map.location = (x + 1200, y - 200)
+        rough_map.inputs['From Min'].default_value = 0.3
+        rough_map.inputs['From Max'].default_value = 0.7
+        rough_map.inputs['To Min'].default_value = rough_base - 0.1
+        rough_map.inputs['To Max'].default_value = rough_base + 0.15
+
+        links.new(rough_noise.outputs['Fac'], rough_map.inputs['Value'])
+        links.new(rough_map.outputs['Result'], principled.inputs['Roughness'])
+
+    def add_bump(self, nodes, links, mapping, grain_output, principled, x, y):
+        """Ajoute bump mapping (grain + fissures)"""
+
+        bump_main = nodes.new('ShaderNodeBump')
+        bump_main.location = (x + 1200, y - 50)
+        bump_main.inputs['Strength'].default_value = self.grain_intensity * 0.4
+
+        links.new(grain_output, bump_main.inputs['Height'])
+
+        current_normal = bump_main.outputs['Normal']
+
+        # Fissures
+        if self.cracks > 0:
+            crack_voronoi = nodes.new('ShaderNodeTexVoronoi')
+            crack_voronoi.location = (x + 800, y - 1100)
+            crack_voronoi.voronoi_dimensions = '3D'
+            crack_voronoi.feature = 'DISTANCE_TO_EDGE'
+            crack_voronoi.inputs['Scale'].default_value = 4.0
+            crack_voronoi.inputs['Randomness'].default_value = 1.0
+
+            links.new(mapping.outputs['Vector'], crack_voronoi.inputs['Vector'])
+
+            crack_thresh = nodes.new('ShaderNodeMapRange')
+            crack_thresh.location = (x + 1000, y - 1100)
+            crack_thresh.inputs['From Min'].default_value = 0.0
+            crack_thresh.inputs['From Max'].default_value = 0.02
+            crack_thresh.clamp = True
+
+            links.new(crack_voronoi.outputs['Distance'], crack_thresh.inputs['Value'])
+
+            crack_bump = nodes.new('ShaderNodeBump')
+            crack_bump.location = (x + 1400, y - 50)
+            crack_bump.inputs['Strength'].default_value = self.cracks * 0.3
+            crack_bump.invert = True
+
+            links.new(crack_thresh.outputs['Result'], crack_bump.inputs['Height'])
+            links.new(current_normal, crack_bump.inputs['Normal'])
+
+            current_normal = crack_bump.outputs['Normal']
+
+        links.new(current_normal, principled.inputs['Normal'])
+
+    def get_base_roughness(self):
+        """Retourne la roughness de base selon le type"""
+        roughness_values = {
+            'GRATTE': 0.75,
+            'TALOCHE': 0.55,
+            'RIBBE': 0.70,
+            'ECRASE': 0.65,
+            'PROJETE': 0.85,
+            'LISSE': 0.40,
+        }
+        return roughness_values.get(self.plaster_type, 0.65)

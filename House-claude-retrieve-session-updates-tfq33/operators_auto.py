@@ -1,0 +1,2785 @@
+# ##### BEGIN GPL LICENSE BLOCK #####
+#
+#  House - Automatic Generation Operators Module (BLENDER 4.2+ COMPATIBLE)
+#  Copyright (C) 2025 mvaertan
+#  ULTIMATE EDITION - Système complet de matériaux briques
+#
+# ##### END GPL LICENSE BLOCK #####
+
+import bpy
+import bmesh
+from bpy.types import Operator
+from mathutils import Vector, Matrix
+import math
+import random
+
+# Import du module de fenêtres
+from .windows import WindowGenerator
+
+# Import du système de sols avancé (architecture modulaire)
+from .floor_types import FlooringGenerator, QUALITY_LOW, QUALITY_MEDIUM, QUALITY_HIGH, QUALITY_ULTRA
+
+# Import du système de gouttières
+from .gutters import GuttersGenerator
+
+# Import du système de finitions murales intérieures
+from .interior_walls import InteriorWallFinishManager
+from .interior_walls.paint_colors import get_paint_color
+
+# Import du système de distribution des pièces (v2 avec portes complètes)
+from .room_layout import RoomLayoutGenerator, HOUSING_PRESETS
+
+# ✅ NOUVEAU: Import du système de placement des fenêtres
+try:
+    from .room_layout import (
+        calculate_window_positions,
+        convert_to_blender_format,
+        print_placement_summary,
+        HAS_WINDOW_PLACEMENT,
+    )
+except ImportError:
+    HAS_WINDOW_PLACEMENT = False
+    print("[House] ⚠️ Module window_placement non disponible")
+
+# ============================================================
+# MODE DEBUG (activer pour logs détaillés)
+# ============================================================
+# NOTE BUG #10: DEBUG_MODE est actuellement hardcodé
+# TODO: Considérer de le déplacer vers les préférences (properties.py) pour permettre
+# un toggle via l'interface Blender sans éditer le code source
+DEBUG_MODE = False  # Mettre à True pour debug détaillé
+
+# ============================================================
+# Constantes - Dimensions et épaisseurs
+# ============================================================
+WALL_THICKNESS = 0.25
+FLOOR_THICKNESS = 0.2
+FOUNDATION_THICKNESS = 0.3
+ROOF_THICKNESS_FLAT = 0.3
+ROOF_THICKNESS_PITCHED = 0.15
+
+# Constantes - Ouvertures
+OPENING_OFFSET = 0.02
+DOOR_HEIGHT = 2.1
+DOOR_DEPTH_EXTRA = 0.1
+WINDOW_WIDTH = 1.2
+WINDOW_DEPTH_EXTRA = 0.1
+WINDOW_SPACING_INTERVAL = 3.0
+
+# Constantes - Proportions
+FLOOR_INSET = 0.95
+WINDOW_HEIGHT_DEFAULT = 0.4
+
+# Constantes - Garage
+GARAGE_WIDTH_SINGLE = 3.0
+GARAGE_WIDTH_DOUBLE = 6.0
+GARAGE_LENGTH = 5.0
+GARAGE_HEIGHT = 2.5
+GARAGE_OFFSET = 1.0
+GARAGE_ROOF_OVERHANG = 0.3
+GARAGE_DOOR_WIDTH_RATIO = 0.9
+GARAGE_DOOR_HEIGHT_RATIO = 0.8
+
+# Constantes - Terrasse
+TERRACE_WIDTH_RATIO = 0.8
+TERRACE_LENGTH = 3.0
+TERRACE_HEIGHT = 0.2
+TERRACE_OFFSET = 0.5
+
+# Constantes - Balcon et Rambarde
+BALCONY_WIDTH_RATIO = 0.6
+BALCONY_DEPTH = 1.5
+BALCONY_HEIGHT = 0.15
+BALCONY_RAILING_HEIGHT = 1.0
+BALCONY_RAILING_THICKNESS = 0.05
+BALCONY_POST_SIZE = 0.08
+BALCONY_POST_SPACING = 0.5
+
+# Constantes - Matériaux
+MATERIAL_ROUGHNESS = 0.7
+BMESH_MERGE_DISTANCE = 0.001
+
+# Couleurs par défaut
+DEFAULT_WALL_COLOR = (0.9, 0.9, 0.85)
+DEFAULT_ROOF_COLOR = (0.3, 0.2, 0.15)
+DEFAULT_FLOOR_COLOR = (0.7, 0.6, 0.5)
+
+
+class HOUSE_OT_generate_auto(Operator):
+    """Génère automatiquement une maison selon les paramètres"""
+    bl_idname = "house.generate_auto"
+    bl_label = "Générer la maison"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    # ✅ NOUVEAU: Stockage des positions de fenêtres calculées depuis le FloorPlan
+    calculated_window_positions = {'front': [], 'back': [], 'left': [], 'right': []}
+    _floor_plan = None  # Référence au floor plan pour calcul fenêtres
+    
+    def execute(self, context):
+        props = context.scene.house_generator
+
+        # ✅ VALIDATION : Vérifier les paramètres
+        validation_error = self._validate_parameters(props)
+        if validation_error:
+            self.report({'ERROR'}, validation_error)
+            return {'CANCELLED'}
+
+        # Initialiser real_wall_height pour éviter AttributeError
+        self.real_wall_height = None
+
+        print("[House] Début de la génération...")
+        self.report({'INFO'}, "Génération de la maison en cours...")
+
+        # Mode debug
+        if DEBUG_MODE:
+            print(f"[DEBUG] Dimensions: {props.house_width}m × {props.house_length}m")
+            print(f"[DEBUG] Étages: {props.num_floors}, Hauteur étage: {props.floor_height}m")
+            print(f"[DEBUG] Toit: {props.roof_type}, Pente: {props.roof_pitch}°")
+            print(f"[DEBUG] Murs: {props.wall_construction_type}, Qualité briques: {props.brick_3d_quality if props.wall_construction_type == 'BRICK_3D' else 'N/A'}")
+
+        if props.random_seed > 0:
+            random.seed(props.random_seed)
+            print(f"[House] Seed: {props.random_seed}")
+
+        # Initialiser la barre de progression
+        wm = context.window_manager
+        wm.progress_begin(0, 100)
+        progress = 0
+
+        try:
+            # Appliquer le style architectural
+            style_config = self._apply_architectural_style(props)
+            print(f"[House] Style architectural: {props.architectural_style}")
+            progress += 5
+            wm.progress_update(progress)
+
+            house_collection = self._create_house_collection(context)
+            progress += 5
+            wm.progress_update(progress)
+
+            print("[House] Fondations...")
+            self._generate_foundation(context, props, house_collection)
+            progress += 10
+            wm.progress_update(progress)
+
+            # ✅ IMPORTANT: Distribution des pièces EN PREMIER pour calculer les positions des fenêtres
+            if hasattr(props, 'use_room_layout') and props.use_room_layout:
+                print("[House] Distribution des pièces (cloisons)...")
+                self._generate_room_partitions(context, props, house_collection)
+                progress += 5
+                wm.progress_update(progress)
+
+            print("[House] Murs...")
+            walls = self._generate_walls(context, props, house_collection)
+            progress += 20
+            wm.progress_update(progress)
+
+            print("[House] Planchers...")
+            self._generate_floors(context, props, house_collection)
+            progress += 10
+            wm.progress_update(progress)
+
+            # ✅ PLAFONDS : Entre les étages + plafond final sous le toit (TOUJOURS créé)
+            print("[House] Plafonds...")
+            self._generate_ceilings(context, props, house_collection)
+            progress += 5
+            wm.progress_update(progress)
+
+            # ✅ NOUVEAU: Finitions murales intérieures (si activé)
+            if hasattr(props, 'use_interior_walls_system') and props.use_interior_walls_system:
+                print("[House] Finitions murales intérieures...")
+                self._generate_interior_wall_finishes(context, props, house_collection)
+                progress += 5
+                wm.progress_update(progress)
+
+            print("[House] Toit...")
+            self._generate_roof(context, props, house_collection)
+            progress += 15
+            wm.progress_update(progress)
+            
+            # Perçage des murs SEULEMENT si MUR SIMPLE
+            if props.wall_construction_type != 'BRICK_3D':
+                print("[House] Perçage des murs (portes et fenêtres)...")
+                self._generate_wall_openings(context, props, house_collection, walls, style_config)
+            else:
+                print("[House] Murs en briques 3D : ouvertures déjà intégrées")
+            progress += 10
+            wm.progress_update(progress)
+
+            print(f"[House] Fenêtres complètes 3D (type: {props.window_type}, qualité: {props.window_quality})...")
+            self._generate_windows_complete(context, props, house_collection, style_config)
+            progress += 10
+            wm.progress_update(progress)
+
+            # ✅ NOUVEAU: Porte d'entrée 3D avec 4 styles
+            print(f"[House] Porte d'entrée 3D (style: {props.door_style})...")
+            self._generate_front_door(context, props, house_collection)
+            progress += 5
+            wm.progress_update(progress)
+
+            if props.include_garage:
+                print("[House] Garage...")
+                self._generate_garage(context, props, house_collection)
+                progress += 5
+                wm.progress_update(progress)
+
+            if props.include_terrace or style_config.get('terrace_enabled', False):
+                print("[House] Terrasse...")
+                self._generate_terrace(context, props, house_collection)
+                progress += 3
+                wm.progress_update(progress)
+
+            if (props.include_balcony and props.num_floors > 1) or style_config.get('balcony_enabled', False):
+                print("[House] Balcon...")
+                self._generate_balcony(context, props, house_collection)
+                progress += 3
+                wm.progress_update(progress)
+
+            if props.use_materials:
+                print("[House] Matériaux...")
+                self._apply_materials(context, props, house_collection, style_config)
+                progress += 10
+                wm.progress_update(progress)
+
+            # Éclairage automatique
+            if props.auto_lighting:
+                print("[House] Éclairage automatique...")
+                self._add_scene_lighting(context, props)
+                progress += 4
+                wm.progress_update(progress)
+            
+            # Finaliser la progression
+            wm.progress_update(100)
+
+            print(f"[House] Terminé! Style: {props.architectural_style}, Fenêtres: {props.window_type}")
+            self.report({'INFO'}, f"Maison générée! Style: {props.architectural_style}, Fenêtres: {props.window_type}")
+
+        except Exception as e:
+            wm.progress_end()
+            print(f"[House] ERREUR: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            self.report({'ERROR'}, f"Erreur: {str(e)}")
+            return {'CANCELLED'}
+
+        wm.progress_end()
+        self.report({'INFO'}, "Maison générée avec succès!")
+        return {'FINISHED'}
+
+    def _validate_parameters(self, props):
+        """Valide les paramètres de génération
+
+        Returns:
+            str: Message d'erreur si invalide, None si valide
+        """
+        # Dimensions minimales/maximales
+        if props.house_width < 3.0:
+            return "Largeur minimale : 3m"
+        if props.house_width > 50.0:
+            return "Largeur maximale : 50m"
+        if props.house_length < 3.0:
+            return "Longueur minimale : 3m"
+        if props.house_length > 50.0:
+            return "Longueur maximale : 50m"
+
+        # Hauteur d'étage réaliste
+        if props.floor_height < 2.2:
+            return "Hauteur d'étage minimale : 2.2m"
+        if props.floor_height > 5.0:
+            return "Hauteur d'étage maximale : 5m"
+
+        # Pente de toit
+        if props.roof_pitch < 5.0:
+            return "Pente de toit minimale : 5°"
+        if props.roof_pitch > 75.0:
+            return "Pente de toit maximale : 75°"
+
+        # Warning pour GAMBREL avec pente faible
+        if props.roof_type == 'GAMBREL' and props.roof_pitch < 20.0:
+            # Pas d'erreur, juste un warning (sera affiché dans execute)
+            print(f"[House] ⚠️ Toit mansarde : pente faible ({props.roof_pitch}°), résultat peu esthétique (recommandé: 20-45°)")
+
+        # Débord de toit réaliste
+        if props.roof_overhang < 0.0:
+            return "Débord de toit minimal : 0m"
+        if props.roof_overhang > 2.0:
+            return "Débord de toit maximal : 2m"
+
+        # Matériau custom pour briques
+        if props.wall_construction_type == 'BRICK_3D' and props.brick_material_mode == 'CUSTOM' and not props.brick_custom_material:
+            return "Mode matériau custom sélectionné mais aucun matériau défini"
+
+        return None  # Tout est valide
+
+    def _apply_architectural_style(self, props):
+        """Applique les variations selon le style architectural"""
+        style = props.architectural_style
+        
+        if style == 'MODERN':
+            return self._get_modern_style()
+        elif style == 'TRADITIONAL':
+            return self._get_traditional_style()
+        elif style == 'MEDITERRANEAN':
+            return self._get_mediterranean_style()
+        elif style == 'CONTEMPORARY':
+            return self._get_contemporary_style()
+        elif style == 'ASIAN':
+            return self._get_asian_style()
+        else:
+            return self._get_modern_style()
+    
+    def _get_modern_style(self):
+        """Style moderne"""
+        return {
+            'wall_color': (0.95, 0.95, 0.95),
+            'roof_color': (0.2, 0.2, 0.2),
+            'floor_color': (0.7, 0.7, 0.7),
+            'window_height_ratio': 0.6,
+            'balcony_enabled': False,
+            'terrace_enabled': True
+        }
+    
+    def _get_traditional_style(self):
+        """Style traditionnel"""
+        return {
+            'wall_color': (0.85, 0.75, 0.65),
+            'roof_color': (0.4, 0.25, 0.2),
+            'floor_color': (0.6, 0.5, 0.4),
+            'window_height_ratio': 0.45,
+            'balcony_enabled': False,
+            'terrace_enabled': False
+        }
+    
+    def _get_mediterranean_style(self):
+        """Style méditerranéen"""
+        return {
+            'wall_color': (0.95, 0.9, 0.8),
+            'roof_color': (0.7, 0.3, 0.2),
+            'floor_color': (0.8, 0.6, 0.4),
+            'window_height_ratio': 0.5,
+            'balcony_enabled': True,
+            'terrace_enabled': True
+        }
+    
+    def _get_contemporary_style(self):
+        """Style contemporain"""
+        return {
+            'wall_color': (0.3, 0.3, 0.35),
+            'roof_color': (0.15, 0.15, 0.15),
+            'floor_color': (0.5, 0.5, 0.5),
+            'window_height_ratio': 0.55,
+            'balcony_enabled': True,
+            'terrace_enabled': True
+        }
+    
+    def _get_asian_style(self):
+        """Style asiatique"""
+        return {
+            'wall_color': (0.9, 0.85, 0.75),
+            'roof_color': (0.15, 0.1, 0.08),
+            'floor_color': (0.55, 0.45, 0.35),
+            'window_height_ratio': 0.5,
+            'balcony_enabled': True,
+            'terrace_enabled': True
+        }
+    
+    def _colors_are_default(self, user_color, default_color):
+        """Vérifie si l'utilisateur a modifié les couleurs par défaut"""
+        tolerance = 0.01
+        return all(abs(user_color[i] - default_color[i]) < tolerance for i in range(3))
+    
+    def _create_house_collection(self, context):
+        """Crée une collection pour la maison"""
+        collection_name = "House"
+
+        if bpy.data.collections.get(collection_name):
+            collection = bpy.data.collections[collection_name]
+            for obj in list(collection.objects):
+                # Unlink from all collections before removing (Blender 4.2 compatibility)
+                for coll in bpy.data.collections:
+                    # ✅ FIX: Essayer de unlink directement, le try/except gère si l'objet n'est pas dans la collection
+                    # Ne pas utiliser `if obj in coll.objects:` car ça cause une erreur dans Blender 4.2+
+                    try:
+                        coll.objects.unlink(obj)
+                    except (RuntimeError, ReferenceError) as e:
+                        # Objet pas dans cette collection, ou déjà unlinked, ou invalide
+                        pass
+                bpy.data.objects.remove(obj, do_unlink=True)
+        else:
+            collection = bpy.data.collections.new(collection_name)
+            context.scene.collection.children.link(collection)
+
+        return collection
+    
+    def _create_box_mesh(self, name, location, dimensions):
+        """Crée un mesh box aux dimensions exactes"""
+        mesh = bpy.data.meshes.new(name)
+        bm = bmesh.new()
+        
+        try:
+            bmesh.ops.create_cube(bm, size=1.0)
+
+            scale_matrix = Matrix.Diagonal((*dimensions, 1.0))
+            bmesh.ops.transform(bm, matrix=scale_matrix, verts=bm.verts)
+
+            bm.normal_update()
+
+            bm.to_mesh(mesh)
+            mesh.update()
+            
+        finally:
+            bm.free()
+        
+        obj = bpy.data.objects.new(name, mesh)
+        obj.location = location
+        
+        return obj, mesh
+    
+    def _create_mesh_from_bmesh(self, name, bm):
+        """Crée un mesh à partir d'un bmesh"""
+        mesh = bpy.data.meshes.new(name)
+        
+        try:
+            bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=BMESH_MERGE_DISTANCE)
+            bm.normal_update()
+
+            bm.to_mesh(mesh)
+            mesh.update()
+            
+        except Exception as e:
+            print(f"[House] Erreur mesh {name}: {e}")
+            raise
+        
+        obj = bpy.data.objects.new(name, mesh)
+        return obj, mesh
+    
+    def _generate_foundation(self, context, props, collection):
+        """Génère les fondations"""
+        width = props.house_width
+        length = props.house_length
+        thickness = FOUNDATION_THICKNESS
+        
+        location = Vector((width/2, length/2, -thickness/2))
+        dimensions = Vector((width, length, thickness))
+        
+        foundation, mesh = self._create_box_mesh("Foundation", location, dimensions)
+        collection.objects.link(foundation)
+        foundation["house_part"] = "floor"
+        
+        return foundation
+    
+    def _calculate_safe_window_count(self, wall_length, dimension_name="largeur"):
+        """✅ FIX BUG #4: Calcule le nombre de fenêtres sans chevauchement
+
+        Sécurité niveau 1: Validation des paramètres d'entrée
+        Sécurité niveau 2: Calcul mathématique avec espacement minimum
+        Sécurité niveau 3: Vérification du résultat (pas de division par zéro)
+        Sécurité niveau 4: Warnings si maison trop petite
+        Sécurité niveau 5: Logging pour debug
+
+        Args:
+            wall_length: Longueur du mur en mètres
+            dimension_name: Nom pour les messages (debug)
+
+        Returns:
+            int: Nombre de fenêtres sécuritaire (1 minimum, jamais de chevauchement)
+        """
+        # === SÉCURITÉ NIVEAU 1: Validation entrées ===
+        if wall_length <= 0:
+            print(f"[House] ⚠️ Longueur mur invalide: {wall_length}m, utilisation 1 fenêtre par défaut")
+            return 1
+
+        # === SÉCURITÉ NIVEAU 2: Calcul avec espacement minimum ===
+        window_width = WINDOW_WIDTH  # 1.2m
+        min_spacing = 0.5  # Espacement minimum entre fenêtres (sécurité architecturale)
+        min_edge_spacing = 0.3  # Espacement minimum depuis les bords
+
+        # Formule: wall_length >= edge_spacing + n*window_width + (n-1)*spacing + edge_spacing
+        # Simplification: wall_length >= 2*edge + n*window_width + (n-1)*spacing
+        # wall_length - 2*edge >= n*window_width + n*spacing - spacing
+        # wall_length - 2*edge + spacing >= n*(window_width + spacing)
+        # n <= (wall_length - 2*edge + spacing) / (window_width + spacing)
+
+        try:
+            available_space = wall_length - 2 * min_edge_spacing + min_spacing
+            max_windows = int(available_space / (window_width + min_spacing))
+        except (ZeroDivisionError, ValueError) as e:
+            print(f"[House] ⚠️ Erreur calcul fenêtres: {e}, utilisation 1 fenêtre")
+            return 1
+
+        # === SÉCURITÉ NIVEAU 3: Validation résultat ===
+        # Minimum absolu: 1 fenêtre
+        # Maximum raisonnable: basé sur l'ancien système (éviter régression)
+        old_system_max = max(2, int(wall_length / WINDOW_SPACING_INTERVAL))
+        safe_count = max(1, min(max_windows, old_system_max))
+
+        # === SÉCURITÉ NIVEAU 4: Warnings si maison trop petite ===
+        if safe_count < 2 and wall_length >= 3.0:
+            print(f"[House] ⚠️ Mur {dimension_name} ({wall_length:.1f}m) trop petit pour 2 fenêtres")
+            print(f"[House]    → 1 fenêtre générée pour éviter chevauchement")
+            print(f"[House]    → Recommandé: {dimension_name} ≥ {2*min_edge_spacing + 2*window_width + min_spacing:.1f}m pour 2 fenêtres")
+
+        # Vérification espacement réel (double sécurité)
+        actual_spacing = wall_length / (safe_count + 1)
+        min_required_space_per_window = window_width + min_spacing
+
+        if actual_spacing < min_required_space_per_window and safe_count > 1:
+            # Réduction forcée si l'espacement calculé est encore trop petit
+            safe_count = max(1, safe_count - 1)
+            print(f"[House] ⚠️ Réduction fenêtres à {safe_count} pour garantir espacement minimum")
+
+        # === SÉCURITÉ NIVEAU 5: Logging (mode production) ===
+        if DEBUG_MODE:
+            print(f"[House] Fenêtres {dimension_name}: {safe_count} pour {wall_length:.1f}m")
+            print(f"[House]    - Espacement: {actual_spacing:.2f}m")
+            print(f"[House]    - Ancien système: {old_system_max}, Nouveau: {safe_count}")
+
+        return safe_count
+
+    def _generate_walls(self, context, props, collection):
+        """Génère les murs extérieurs (SIMPLE ou BRIQUES 3D) - ULTIMATE"""
+
+        # === SI FINITION EXTÉRIEURE ACTIVÉE : SKIP CRÉATION MURS ===
+        # La finition (crépi/bardage/pierre) REMPLACE le mur au lieu de se superposer
+        use_exterior_finish = (
+            (hasattr(props, 'use_exterior_crepi') and props.use_exterior_crepi) or
+            (hasattr(props, 'use_exterior_bardage') and props.use_exterior_bardage) or
+            (hasattr(props, 'use_exterior_pierre') and props.use_exterior_pierre)
+        )
+
+        if use_exterior_finish:
+            print("[House] ✅ Finition extérieure activée → Skip création murs (la finition devient le mur)")
+            # Retourner liste vide, les finitions seront créées dans _apply_materials
+            self.real_wall_height = props.num_floors * props.floor_height
+            return []
+
+        # === SI BRIQUES 3D : NOUVEAU SYSTÈME COMPLET ===
+        if props.wall_construction_type == 'BRICK_3D':
+            print(f"[House] Génération murs en briques 3D (qualité: {props.brick_3d_quality})")
+            print(f"[House] Mode matériau: {props.brick_material_mode}")
+            
+            from .materials import brick_geometry
+            
+            width = props.house_width
+            length = props.house_length
+            total_height = props.num_floors * props.floor_height
+            
+            # Calculer les ouvertures
+            openings = self._calculate_openings_for_brick_walls(props)
+            print(f"[House] {len(openings)} ouvertures calculées")
+            
+            # ✅ NOUVEAU : Préparer les paramètres matériau selon le mode
+            brick_material_mode = props.brick_material_mode
+            brick_color = None
+            brick_preset = 'BRICK_RED'
+            custom_material = None
+            
+            if brick_material_mode == 'COLOR':
+                # Mode couleur unie
+                brick_color = props.brick_solid_color
+                print(f"[House] Couleur unie: {brick_color}")
+            elif brick_material_mode == 'PRESET':
+                # Mode preset
+                brick_preset = props.brick_preset_type
+                print(f"[House] Preset: {brick_preset}")
+            elif brick_material_mode == 'CUSTOM':
+                # Mode matériau custom
+                custom_material = props.brick_custom_material
+                if custom_material:
+                    print(f"[House] Matériau custom: {custom_material.name}")
+                else:
+                    print(f"[House] ATTENTION : Pas de matériau custom défini, utilisation preset par défaut")
+                    self.report({'WARNING'}, "Pas de matériau custom défini, utilisation du preset par défaut")
+                    brick_material_mode = 'PRESET'
+            
+            # Générer les murs avec le nouveau système
+            # ✅ FIX : Capturer la hauteur réelle des murs pour positionner le toit correctement
+            walls, real_wall_height = brick_geometry.generate_house_walls_bricks(
+                width,
+                length,
+                total_height,
+                collection,
+                props.brick_3d_quality,
+                openings,
+                brick_material_mode,
+                brick_color,
+                brick_preset,
+                custom_material
+            )
+
+            # Stocker la hauteur réelle pour l'utiliser dans _generate_roof
+            self.real_wall_height = real_wall_height
+            print(f"[House] Hauteur réelle des murs enregistrée: {real_wall_height:.3f}m")
+
+            return walls
+        
+        # === SINON MUR SIMPLE (inchangé) ===
+        width = props.house_width
+        length = props.house_length
+        wall_thickness = WALL_THICKNESS
+        total_height = props.num_floors * props.floor_height
+
+        # ✅ FIX CRITIQUE SHED: Adapter hauteur murs selon type toit
+        roof_type = props.roof_type
+        roof_pitch = props.roof_pitch
+
+        # Calculer hauteur additionnelle pour toit SHED
+        shed_extra_height = 0
+        if roof_type == 'SHED':
+            pitch_rad = math.radians(roof_pitch)
+            shed_extra_height = length * math.tan(pitch_rad)
+            # Limiter à 1.5× hauteur murs
+            max_extra = total_height * 0.5
+            if shed_extra_height > max_extra:
+                shed_extra_height = max_extra
+            print(f"[House] Toit SHED: mur arrière surélevé de {shed_extra_height:.2f}m")
+
+        # Aligner murs avec le dessus de la fondation
+        base_z = 0
+
+        walls = []
+        mesh = bpy.data.meshes.new("Walls")
+        bm = bmesh.new()
+
+        try:
+            h = total_height
+
+            # Vertices du bas (au niveau des fondations)
+            outer = [
+                bm.verts.new((0, 0, base_z)),
+                bm.verts.new((width, 0, base_z)),
+                bm.verts.new((width, length, base_z)),
+                bm.verts.new((0, length, base_z))
+            ]
+
+            inner = [
+                bm.verts.new((wall_thickness, wall_thickness, base_z)),
+                bm.verts.new((width - wall_thickness, wall_thickness, base_z)),
+                bm.verts.new((width - wall_thickness, length - wall_thickness, base_z)),
+                bm.verts.new((wall_thickness, length - wall_thickness, base_z))
+            ]
+
+            # ✅ FIX CRITIQUE SHED: Vertices du haut avec hauteurs adaptées
+            # Pour SHED: murs arrière (indices 2, 3) plus hauts
+            outer_top = []
+            inner_top = []
+            for i, v in enumerate(outer):
+                # Indices 2 et 3 = mur arrière (côté Y+)
+                extra_h = shed_extra_height if (i >= 2 and roof_type == 'SHED') else 0
+                outer_top.append(bm.verts.new(v.co + Vector((0, 0, h + extra_h))))
+
+            for i, v in enumerate(inner):
+                extra_h = shed_extra_height if (i >= 2 and roof_type == 'SHED') else 0
+                inner_top.append(bm.verts.new(v.co + Vector((0, 0, h + extra_h))))
+            
+            # Faces verticales extérieures
+            for i in range(4):
+                j = (i + 1) % 4
+                bm.faces.new([outer[i], outer[j], outer_top[j], outer_top[i]])
+            
+            # Faces verticales intérieures
+            for i in range(4):
+                j = (i + 1) % 4
+                bm.faces.new([inner[j], inner[i], inner_top[i], inner_top[j]])
+            
+            # Sol de la structure murale
+            bm.faces.new([outer[0], outer[1], inner[1], inner[0]])
+            bm.faces.new([outer[1], outer[2], inner[2], inner[1]])
+            bm.faces.new([outer[2], outer[3], inner[3], inner[2]])
+            bm.faces.new([outer[3], outer[0], inner[0], inner[3]])
+            
+            # Plafond de la structure murale
+            bm.faces.new([outer_top[0], inner_top[0], inner_top[1], outer_top[1]])
+            bm.faces.new([outer_top[1], inner_top[1], inner_top[2], outer_top[2]])
+            bm.faces.new([outer_top[2], inner_top[2], inner_top[3], outer_top[3]])
+            bm.faces.new([outer_top[3], inner_top[3], inner_top[0], outer_top[0]])
+            
+            walls_obj, walls_mesh = self._create_mesh_from_bmesh("Walls", bm)
+            collection.objects.link(walls_obj)
+            walls_obj["house_part"] = "wall"
+            walls.append(walls_obj)
+            
+        finally:
+            bm.free()
+        
+        return walls
+    
+    def _calculate_openings_for_brick_walls(self, props):
+        """Calcule les positions des ouvertures pour les murs en briques
+        
+        ✅ NOUVEAU: Utilise les fenêtres pré-calculées si disponibles
+        """
+        width = props.house_width
+        length = props.house_length
+
+        openings = []
+
+        # Récupérer window_height_ratio
+        style_config = self._apply_architectural_style(props)
+        window_height_ratio = style_config.get('window_height_ratio', props.window_height_ratio)
+        
+        # PORTE
+        door_width = props.front_door_width
+        door_height = DOOR_HEIGHT
+        door_x = width/2 - door_width/2
+        
+        openings.append({
+            'x': door_x,
+            'y': 0,
+            'z': 0,
+            'width': door_width,
+            'height': door_height,
+            'depth': WALL_THICKNESS,
+            'wall': 'front',
+            'type': 'door'
+        })
+
+        # PORTE ARRIÈRE (si activée)
+        if getattr(props, 'include_back_door', False):
+            openings.append({
+                'x': door_x,
+                'y': length,
+                'z': 0,
+                'width': door_width,
+                'height': door_height,
+                'depth': WALL_THICKNESS,
+                'wall': 'back',
+                'type': 'door'
+            })
+        
+        # ✅ NOUVEAU: Vérifier si on a des positions pré-calculées
+        has_calculated = hasattr(self, 'calculated_window_positions') and any(
+            len(v) > 0 for v in self.calculated_window_positions.values()
+        )
+        
+        # FENÊTRES
+        for floor in range(props.num_floors):
+            floor_z = floor * props.floor_height
+            window_height = props.floor_height * window_height_ratio
+            window_z = floor_z + props.floor_height * WINDOW_HEIGHT_DEFAULT
+            window_width = WINDOW_WIDTH
+            
+            if has_calculated:
+                # ✅ NOUVEAU SYSTÈME: Utiliser les positions pré-calculées
+                
+                # Mur AVANT (front)
+                for win_data in self.calculated_window_positions.get('front', []):
+                    x_pos = win_data['position']
+                    w = win_data.get('width', window_width)
+                    
+                    # Éviter porte d'entrée au RDC
+                    if floor == 0 and abs(x_pos - width/2) < door_width * 1.5:
+                        continue
+                    
+                    openings.append({
+                        'x': x_pos - w/2,
+                        'y': 0,
+                        'z': window_z - window_height/2,
+                        'width': w,
+                        'height': window_height,
+                        'depth': WALL_THICKNESS,
+                        'wall': 'front',
+                        'type': 'window'
+                    })
+                
+                # Mur ARRIÈRE (back)
+                for win_data in self.calculated_window_positions.get('back', []):
+                    x_pos = win_data['position']
+                    w = win_data.get('width', window_width)
+                    
+                    openings.append({
+                        'x': x_pos - w/2,
+                        'y': length,
+                        'z': window_z - window_height/2,
+                        'width': w,
+                        'height': window_height,
+                        'depth': WALL_THICKNESS,
+                        'wall': 'back',
+                        'type': 'window'
+                    })
+                
+                # Mur GAUCHE (left)
+                for win_data in self.calculated_window_positions.get('left', []):
+                    y_pos = win_data['position']
+                    w = win_data.get('width', window_width)
+                    
+                    openings.append({
+                        'x': 0,
+                        'y': y_pos - w/2,
+                        'z': window_z - window_height/2,
+                        'width': WALL_THICKNESS,
+                        'height': window_height,
+                        'depth': w,
+                        'wall': 'left',
+                        'type': 'window'
+                    })
+                
+                # Mur DROIT (right)
+                for win_data in self.calculated_window_positions.get('right', []):
+                    y_pos = win_data['position']
+                    w = win_data.get('width', window_width)
+                    
+                    openings.append({
+                        'x': width,
+                        'y': y_pos - w/2,
+                        'z': window_z - window_height/2,
+                        'width': WALL_THICKNESS,
+                        'height': window_height,
+                        'depth': w,
+                        'wall': 'right',
+                        'type': 'window'
+                    })
+            
+            else:
+                # FALLBACK: Ancien système avec espacement régulier
+                num_windows_front = self._calculate_safe_window_count(width, "largeur")
+                num_windows_side = self._calculate_safe_window_count(length, "longueur")
+                
+                # Mur AVANT
+                spacing_front = width / (num_windows_front + 1)
+                for i in range(num_windows_front):
+                    x_pos = spacing_front * (i + 1)
+                    
+                    if floor == 0 and abs(x_pos - width/2) < door_width * 1.5:
+                        continue
+                    
+                    opening_x = x_pos - window_width/2
+                    
+                    openings.append({
+                        'x': opening_x,
+                        'y': 0,
+                        'z': window_z - window_height/2,
+                        'width': window_width,
+                        'height': window_height,
+                        'depth': WALL_THICKNESS,
+                        'wall': 'front',
+                        'type': 'window'
+                    })
+                
+                # Mur ARRIÈRE
+                for i in range(num_windows_front):
+                    x_pos = spacing_front * (i + 1)
+                    opening_x = x_pos - window_width/2
+                    
+                    openings.append({
+                        'x': opening_x,
+                        'y': length,
+                        'z': window_z - window_height/2,
+                        'width': window_width,
+                        'height': window_height,
+                        'depth': WALL_THICKNESS,
+                        'wall': 'back',
+                        'type': 'window'
+                    })
+                
+                # Mur GAUCHE
+                spacing_side = length / (num_windows_side + 1)
+                for i in range(num_windows_side):
+                    y_pos = spacing_side * (i + 1)
+                    opening_y = y_pos - window_width/2
+                    
+                    openings.append({
+                        'x': 0,
+                        'y': opening_y,
+                        'z': window_z - window_height/2,
+                        'width': WALL_THICKNESS,
+                        'height': window_height,
+                        'depth': window_width,
+                        'wall': 'left',
+                        'type': 'window'
+                    })
+
+                # Mur DROIT
+                for i in range(num_windows_side):
+                    y_pos = spacing_side * (i + 1)
+                    opening_y = y_pos - window_width/2
+                    
+                    openings.append({
+                        'x': width,
+                        'y': opening_y,
+                        'z': window_z - window_height/2,
+                        'width': WALL_THICKNESS,
+                        'height': window_height,
+                        'depth': window_width,
+                        'wall': 'right',
+                        'type': 'window'
+                    })
+        
+        return openings
+    
+    def _generate_floors(self, context, props, collection):
+        """Génère les planchers (simple ou système avancé)"""
+        print("[House] === DÉBUT GÉNÉRATION SOLS ===")
+        width = props.house_width
+        length = props.house_length
+        floor_thickness = FLOOR_THICKNESS
+
+        print(f"[House] Dimensions: width={width:.2f}m, length={length:.2f}m, thickness={floor_thickness:.3f}m")
+        print(f"[House] Nombre d'étages: {props.num_floors}")
+
+        floors = []
+
+        # ✅ SYSTÈME AVANCÉ: Utiliser flooring.py si activé
+        if hasattr(props, 'use_flooring_system') and props.use_flooring_system:
+            print("[House] Utilisation du système de sols avancé")
+            print(f"[House] Type de sol: {props.flooring_type}, Qualité: {props.flooring_quality}")
+
+            # Mapper qualité property vers constantes flooring
+            quality_map = {
+                'LOW': QUALITY_LOW,
+                'MEDIUM': QUALITY_MEDIUM,
+                'HIGH': QUALITY_HIGH,
+                'ULTRA': QUALITY_ULTRA
+            }
+            quality = quality_map.get(props.flooring_quality, QUALITY_HIGH)
+
+            # Créer le générateur
+            flooring_gen = FlooringGenerator(quality=quality)
+
+            # Générer les sols pour chaque étage
+            for floor_num in range(props.num_floors):
+                print(f"[House] --- Génération sol étage {floor_num} ---")
+                if floor_num == 0:
+                    z_pos = 0  # Sol rez-de-chaussée au niveau 0
+                else:
+                    z_pos = floor_num * props.floor_height
+
+                inset_width = width * FLOOR_INSET
+                inset_length = length * FLOOR_INSET
+
+                print(f"[House]   Position Z: {z_pos:.2f}m, Dimensions inset: {inset_width:.2f}m x {inset_length:.2f}m")
+
+                room_name = "RDC" if floor_num == 0 else f"Etage{floor_num}"
+
+                # ✅ Préparer les options custom selon le type de sol
+                custom_options = {}
+
+                # Options pour PARQUET/BOIS
+                if props.flooring_type in ['HARDWOOD_SOLID', 'HARDWOOD_ENGINEERED', 'LAMINATE']:
+                    custom_options['wood_type'] = props.parquet_wood_type
+                    custom_options['pattern'] = props.parquet_pattern
+
+                # Options pour CARRELAGE
+                elif props.flooring_type in ['CERAMIC_TILE', 'PORCELAIN_TILE']:
+                    custom_options['tile_color'] = props.tile_color_preset
+                    custom_options['tile_size'] = props.tile_size
+
+                # ✅ Générer le sol avec le système avancé + options custom
+                floor_obj = flooring_gen.generate_floor(
+                    floor_type=props.flooring_type,
+                    width=inset_width,
+                    length=inset_length,
+                    room_name=room_name,
+                    height=z_pos,
+                    **custom_options  # Passer les options custom
+                )
+
+                if floor_obj:
+                    # ✅ CORRECTION POSITIONNEMENT:
+                    # Le mesh du parquet va de 0→inset_width, 0→inset_length en coordonnées LOCALES
+                    # Il faut le centrer dans la maison qui va de 0→width, 0→length
+                    # Offset = (maison - sol) / 2 pour centrer
+                    offset_x = (width - inset_width) / 2
+                    offset_y = (length - inset_length) / 2
+                    floor_obj.location = (offset_x, offset_y, z_pos)
+
+                    print(f"[House]   Centrage: maison {width:.2f}×{length:.2f}m, sol {inset_width:.2f}×{inset_length:.2f}m, offset ({offset_x:.3f}, {offset_y:.3f})")
+
+                    collection.objects.link(floor_obj)
+                    floors.append(floor_obj)
+                    print(f"[House]   ✅ Sol créé: {floor_obj.name}, location={floor_obj.location}, collection={collection.name}")
+                else:
+                    print(f"[House]   ❌ ERREUR: floor_obj est None pour étage {floor_num}!")
+
+            print(f"[House] === FIN SOLS AVANCÉS: {len(floors)} sols créés ===")
+            return floors
+
+        # ✅ SYSTÈME SIMPLE (code original)
+        print("[House] Utilisation du système de sols SIMPLE")
+        for floor_num in range(props.num_floors):
+            print(f"[House] --- Génération sol SIMPLE étage {floor_num} ---")
+            if floor_num == 0:
+                z_pos = floor_thickness / 2
+            else:
+                z_pos = floor_num * props.floor_height + floor_thickness / 2
+
+            inset_width = width * FLOOR_INSET
+            inset_length = length * FLOOR_INSET
+
+            location = Vector((width/2, length/2, z_pos))
+            dimensions = Vector((inset_width, inset_length, floor_thickness))
+
+            print(f"[House]   Location: {location}, Dimensions: {dimensions}")
+
+            floor_name = f"Floor_Ground" if floor_num == 0 else f"Floor_{floor_num}"
+            floor, mesh = self._create_box_mesh(floor_name, location, dimensions)
+            collection.objects.link(floor)
+            floor["house_part"] = "floor"
+            floors.append(floor)
+
+            print(f"[House]   ✅ Sol créé: {floor.name}, location={floor.location}, collection={collection.name}")
+
+        print(f"[House] === FIN SOLS SIMPLES: {len(floors)} sols créés ===")
+        return floors
+
+    def _generate_ceilings(self, context, props, collection):
+        """Génère les plafonds entre les étages ET sous le toit
+
+        Un plafond est créé pour chaque étage Y COMPRIS le dernier (sous le toit).
+        Le plafond est positionné juste en dessous de la hauteur de l'étage suivant,
+        ou sous le toit pour le dernier étage.
+        """
+        width = props.house_width
+        length = props.house_length
+        ceiling_thickness = 0.01  # 1cm d'épaisseur pour le plafond
+
+        ceilings = []
+
+        print(f"[House] Génération de {props.num_floors} plafond(s) (incluant sous toit)")
+
+        # ✅ CORRECTION: Générer un plafond pour CHAQUE étage, y compris le dernier
+        for floor_num in range(props.num_floors):
+            # Position du plafond
+            if floor_num < props.num_floors - 1:
+                # Plafonds intermédiaires : juste sous le plancher de l'étage supérieur
+                ceiling_z = (floor_num + 1) * props.floor_height - ceiling_thickness / 2
+                ceiling_type = "entre étages"
+            else:
+                # ✅ NOUVEAU: Plafond final sous le toit
+                # Utiliser la hauteur réelle des murs si disponible (briques 3D)
+                if hasattr(self, 'real_wall_height') and self.real_wall_height:
+                    ceiling_z = self.real_wall_height - ceiling_thickness / 2 - 0.01
+                    ceiling_type = "sous toit (briques 3D)"
+                else:
+                    ceiling_z = props.num_floors * props.floor_height - ceiling_thickness / 2 - 0.01
+                    ceiling_type = "sous toit"
+
+            # Utiliser les mêmes dimensions que les sols (avec inset)
+            inset_width = width * FLOOR_INSET
+            inset_length = length * FLOOR_INSET
+
+            location = Vector((width/2, length/2, ceiling_z))
+            dimensions = Vector((inset_width, inset_length, ceiling_thickness))
+
+            ceiling_name = f"Ceiling_{floor_num}"
+            ceiling, mesh = self._create_box_mesh(ceiling_name, location, dimensions)
+
+            collection.objects.link(ceiling)
+            ceiling["house_part"] = "ceiling"
+
+            # Appliquer un matériau simple blanc pour le plafond
+            self._apply_ceiling_material(ceiling)
+
+            ceilings.append(ceiling)
+
+            print(f"[House] Plafond {floor_num} créé à Z={ceiling_z:.3f}m ({ceiling_type})")
+
+        return ceilings
+
+    def _apply_ceiling_material(self, obj):
+        """Applique un matériau simple blanc pour le plafond"""
+        mat_name = "Material_Ceiling_White"
+        mat = bpy.data.materials.get(mat_name)
+
+        if not mat:
+            mat = bpy.data.materials.new(name=mat_name)
+            mat.use_nodes = True
+
+            bsdf = mat.node_tree.nodes.get("Principled BSDF")
+            if bsdf:
+                # Blanc cassé (légèrement beige)
+                bsdf.inputs["Base Color"].default_value = (0.95, 0.94, 0.92, 1.0)
+                bsdf.inputs["Roughness"].default_value = 0.8  # Mate
+
+                # Blender 4.2 compatible
+                try:
+                    bsdf.inputs["Specular IOR Level"].default_value = 0.3
+                except KeyError:
+                    try:
+                        bsdf.inputs["Specular"].default_value = 0.3
+                    except KeyError:
+                        pass
+
+        if len(obj.data.materials) == 0:
+            obj.data.materials.append(mat)
+        else:
+            obj.data.materials[0] = mat
+
+    def _generate_room_partitions(self, context, props, collection):
+        """Génère les cloisons intérieures pour créer des pièces
+        
+        ✅ SYSTÈME V2: Utilise room_layout avec portes complètes
+        - Portes avec vantail, cadre, poignées des deux côtés
+        - Sens d'ouverture intelligent selon type de pièce
+        - Porte d'entrée automatique
+        """
+        if not (hasattr(props, 'use_room_layout') and props.use_room_layout):
+            print("[House] Système de distribution des pièces désactivé")
+            return []
+        
+        from .room_layout import (
+            RoomLayoutManager,
+            GeometryConfig,
+        )
+        
+        width = props.house_width
+        length = props.house_length
+        floor_height = props.floor_height
+        partition_thickness = props.partition_thickness if hasattr(props, 'partition_thickness') else 0.10
+        
+        print(f"[House] Distribution des pièces V2: {width}m x {length}m")
+        
+        # Créer le manager
+        manager = RoomLayoutManager()
+        manager.set_building_dimensions(width, length, floor_height)
+        
+        # Configuration des portes depuis les props (si disponibles)
+        door_width = getattr(props, 'door_default_width', 0.83)
+        door_height = getattr(props, 'door_default_height', 2.04)
+        pmr_mode = getattr(props, 'door_pmr_mode', False)
+        show_doors_open = getattr(props, 'door_show_open', False)
+        generate_handles = getattr(props, 'door_generate_handles', True)
+        generate_hinges = getattr(props, 'door_generate_hinges', True)
+        generate_frames = getattr(props, 'door_generate_frames', True)
+        generate_panels = getattr(props, 'door_generate_panels', True)
+        
+        manager.set_door_options(
+            default_width=door_width,
+            default_height=door_height,
+            generate_panels=generate_panels,
+            generate_handles=generate_handles,
+            generate_hinges=generate_hinges,
+            show_open=show_doors_open,
+            pmr_mode=pmr_mode
+        )
+        
+        # Déterminer les pièces à placer
+        mode = props.room_layout_mode if hasattr(props, 'room_layout_mode') else 'AUTO'
+        
+        if mode == 'AUTO':
+            # Construire la liste des pièces automatiquement
+            rooms_to_place = []
+            
+            # Pièces de base
+            num_rooms = getattr(props, 'num_rooms', 3)
+            include_kitchen = getattr(props, 'include_kitchen', True)
+            include_bathroom = getattr(props, 'include_bathroom', True)
+            num_bathrooms = getattr(props, 'num_bathrooms', 1)
+            
+            # Salon (toujours)
+            rooms_to_place.append(('SALON', 20.0))
+            
+            # Cuisine
+            if include_kitchen:
+                rooms_to_place.append(('CUISINE', 10.0))
+            
+            # Chambres
+            for i in range(num_rooms):
+                if i == 0:
+                    rooms_to_place.append(('CHAMBRE_PARENTALE', 14.0))
+                else:
+                    rooms_to_place.append(('CHAMBRE', 11.0))
+            
+            # Salles de bain
+            for i in range(num_bathrooms):
+                rooms_to_place.append(('SDB', 5.0))
+            
+            # WC séparé si plusieurs pièces
+            if num_rooms >= 2:
+                rooms_to_place.append(('WC', 1.5))
+            
+            # Entrée si assez grand
+            total_area = width * length
+            if total_area > 60:
+                rooms_to_place.append(('ENTREE', 4.0))
+            
+            print(f"[House] Mode AUTO: {len(rooms_to_place)} pièces")
+            
+        else:
+            # Mode preset - utiliser un preset prédéfini
+            preset_id = getattr(props, 'housing_preset', 'T3')
+            if preset_id in HOUSING_PRESETS:
+                rooms_to_place = HOUSING_PRESETS[preset_id].get_rooms_list()
+                print(f"[House] Mode PRESET: {preset_id} ({len(rooms_to_place)} pièces)")
+            else:
+                rooms_to_place = [('SALON', 20.0), ('CHAMBRE', 12.0), ('SDB', 5.0)]
+                print(f"[House] Preset inconnu, utilisation par défaut")
+        
+        # Définir les pièces
+        manager.set_rooms(rooms_to_place)
+        
+        # Générer le plan
+        success = manager.generate(floor=0)
+        
+        if not success:
+            print("[House] ⚠️ Échec de la génération du plan")
+            return []
+        
+        # Construire la géométrie
+        result = manager.build_geometry(
+            collection_name=collection.name,
+            floor_z=0.0
+        )
+        
+        # ✅ NOUVEAU: Récupérer les positions de fenêtres calculées par le manager
+        try:
+            self.calculated_window_positions = manager.get_window_positions_blender_format()
+            total = sum(len(v) for v in self.calculated_window_positions.values())
+            if total > 0:
+                print(f"[House] ✅ {total} fenêtres pré-calculées récupérées du RoomLayoutManager")
+            else:
+                print(f"[House] ⚠️ Aucune fenêtre pré-calculée, utilisation système régulier")
+        except Exception as e:
+            print(f"[House] ⚠️ Impossible de récupérer fenêtres: {e}")
+            self.calculated_window_positions = {'front': [], 'back': [], 'left': [], 'right': []}
+        
+        # Statistiques
+        stats = manager.get_statistics()
+        print(f"[House] ✅ Distribution V2 créée:")
+        print(f"  - Pièces placées: {stats.get('placed_rooms', 0)}/{stats.get('total_rooms', 0)}")
+        print(f"  - Portes: {stats.get('total_doors', 0)} (int: {stats.get('interior_doors', 0)}, ext: {stats.get('exterior_doors', 0)})")
+        print(f"  - Score adjacence: {stats.get('adjacency_score', 0):.1f}")
+        
+        # Retourner les objets créés
+        return result.get('walls', []) if result else []
+
+    def _generate_interior_wall_finishes(self, context, props, collection):
+        """Génère les finitions murales intérieures (peinture, papier peint, etc.)
+
+        ✅ NOUVEAU SYSTÈME: Utilise interior_walls/ pour générer les finitions
+        """
+        # Vérifier si le système est activé
+        if not (hasattr(props, 'use_interior_walls_system') and props.use_interior_walls_system):
+            print("[House] Système de finitions murales intérieures désactivé")
+            return []
+
+        print(f"[House] Génération finitions murales intérieures (type: {props.interior_wall_finish})")
+
+        width = props.house_width
+        length = props.house_length
+        wall_thickness = WALL_THICKNESS
+        floor_height = props.floor_height
+
+        # ✅ Mapping entre properties.py et interior_walls/__init__.py
+        FINISH_TYPE_MAPPING = {
+            'PAINT': 'PEINTURE',
+            'WALLPAPER': 'PAPIER_PEINT',
+            'PLASTER': 'ENDUIT',
+            'WOOD': 'BOIS',
+            'STONE': 'PIERRE',
+            'EXPOSED_BRICK': 'BRIQUE_APPARENTE'
+        }
+
+        # Préparer les options selon le type de finition
+        finish_type_property = props.interior_wall_finish
+        finish_type = FINISH_TYPE_MAPPING.get(finish_type_property, 'PEINTURE')
+        custom_options = {}
+
+        # Options PEINTURE
+        if finish_type_property == 'PAINT':
+            # Récupérer la couleur (preset ou custom)
+            if props.paint_color_preset == 'CUSTOM':
+                custom_options['color'] = props.paint_color_custom
+            else:
+                custom_options['color'] = get_paint_color(props.paint_color_preset)
+
+            custom_options['paint_type'] = props.paint_type
+            print(f"[House] Peinture: {props.paint_type}, couleur: {custom_options['color']}")
+
+        # Options PAPIER PEINT
+        elif finish_type_property == 'WALLPAPER':
+            custom_options['image_path'] = props.wallpaper_image_path
+            custom_options['wallpaper_type'] = props.wallpaper_type
+            print(f"[House] Papier peint: {props.wallpaper_type}")
+
+        # Pour l'instant, générer uniquement pour le rez-de-chaussée
+        # TODO: Supporter multi-étages
+
+        finishes = []
+
+        # ✅ Mur AVANT (face intérieure, orientation Y+)
+        print(f"[House] Création finition mur AVANT : largeur={width - 2*wall_thickness:.2f}m, hauteur={floor_height:.2f}m")
+        front_finish = InteriorWallFinishManager.generate_finish_geometry(
+            finish_type,
+            width=width - 2*wall_thickness,
+            height=floor_height,
+            **custom_options
+        )
+        if front_finish:
+            front_finish.location = (wall_thickness, wall_thickness, 0)
+            front_finish.rotation_euler = (0, 0, 0)
+            front_finish.name = f"Interior_Finish_Front_{finish_type}"
+            collection.objects.link(front_finish)
+            finishes.append(front_finish)
+            print(f"[House] ✅ Mur AVANT créé avec succès")
+        else:
+            print(f"[House] ❌ Mur AVANT ÉCHEC - finition non créée")
+
+        # ✅ Mur ARRIÈRE (face intérieure, orientation Y-)
+        print(f"[House] Création finition mur ARRIÈRE : largeur={width - 2*wall_thickness:.2f}m, hauteur={floor_height:.2f}m")
+        back_finish = InteriorWallFinishManager.generate_finish_geometry(
+            finish_type,
+            width=width - 2*wall_thickness,
+            height=floor_height,
+            **custom_options
+        )
+        if back_finish:
+            back_finish.location = (width - wall_thickness, length - wall_thickness, 0)
+            back_finish.rotation_euler = (0, 0, math.pi)  # 180° rotation
+            back_finish.name = f"Interior_Finish_Back_{finish_type}"
+            collection.objects.link(back_finish)
+            finishes.append(back_finish)
+            print(f"[House] ✅ Mur ARRIÈRE créé avec succès")
+        else:
+            print(f"[House] ❌ Mur ARRIÈRE ÉCHEC - finition non créée")
+
+        # ✅ Mur GAUCHE (face intérieure, orientation X+)
+        print(f"[House] Création finition mur GAUCHE : largeur={length - 2*wall_thickness:.2f}m, hauteur={floor_height:.2f}m")
+        left_finish = InteriorWallFinishManager.generate_finish_geometry(
+            finish_type,
+            width=length - 2*wall_thickness,
+            height=floor_height,
+            **custom_options
+        )
+        if left_finish:
+            left_finish.location = (wall_thickness, length - wall_thickness, 0)
+            left_finish.rotation_euler = (0, 0, -math.pi/2)  # -90° rotation
+            left_finish.name = f"Interior_Finish_Left_{finish_type}"
+            collection.objects.link(left_finish)
+            finishes.append(left_finish)
+            print(f"[House] ✅ Mur GAUCHE créé avec succès")
+        else:
+            print(f"[House] ❌ Mur GAUCHE ÉCHEC - finition non créée")
+
+        # ✅ Mur DROIT (face intérieure, orientation X-)
+        print(f"[House] Création finition mur DROIT : largeur={length - 2*wall_thickness:.2f}m, hauteur={floor_height:.2f}m")
+        right_finish = InteriorWallFinishManager.generate_finish_geometry(
+            finish_type,
+            width=length - 2*wall_thickness,
+            height=floor_height,
+            **custom_options
+        )
+        if right_finish:
+            right_finish.location = (width - wall_thickness, wall_thickness, 0)
+            right_finish.rotation_euler = (0, 0, math.pi/2)  # 90° rotation
+            right_finish.name = f"Interior_Finish_Right_{finish_type}"
+            collection.objects.link(right_finish)
+            finishes.append(right_finish)
+            print(f"[House] ✅ Mur DROIT créé avec succès")
+        else:
+            print(f"[House] ❌ Mur DROIT ÉCHEC - finition non créée")
+
+        print(f"[House] ✅ {len(finishes)} panneaux de finition générés")
+        return finishes
+
+    def _generate_roof(self, context, props, collection):
+        """Génère le toit"""
+        width = props.house_width
+        length = props.house_length
+
+        # ✅ FIX : Utiliser la hauteur RÉELLE des murs en briques si disponible
+        # Sinon utiliser la hauteur calculée (murs simples)
+        if hasattr(self, 'real_wall_height') and self.real_wall_height:
+            total_height = self.real_wall_height
+            print(f"[House] Toit positionné à la hauteur réelle des murs: {total_height:.3f}m")
+        else:
+            total_height = props.num_floors * props.floor_height
+            print(f"[House] Toit positionné à la hauteur calculée: {total_height:.3f}m")
+
+        roof_type = props.roof_type
+        roof_pitch = props.roof_pitch
+        roof_overhang = props.roof_overhang
+
+        # ✅ FIX BUG #1: Suppression du paramètre collection inutilisé dans les appels
+        if roof_type == 'FLAT':
+            roof = self._create_flat_roof(width, length, total_height, roof_overhang)
+        elif roof_type == 'GABLE':
+            roof = self._create_gable_roof(width, length, total_height, roof_pitch, roof_overhang)
+        elif roof_type == 'HIP':
+            roof = self._create_hip_roof(width, length, total_height, roof_pitch, roof_overhang)
+        elif roof_type == 'SHED':
+            roof = self._create_shed_roof(width, length, total_height, roof_pitch, roof_overhang)
+        elif roof_type == 'GAMBREL':
+            roof = self._create_gambrel_roof(width, length, total_height, roof_pitch, roof_overhang)
+        else:
+            # Fallback au toit plat si type inconnu
+            print(f"[House] ⚠️ Type de toit '{roof_type}' inconnu, utilisation d'un toit plat")
+            roof = self._create_flat_roof(width, length, total_height, roof_overhang)
+
+        roof.name = f"Roof_{roof_type}"
+        roof["house_part"] = "roof"
+        collection.objects.link(roof)
+
+        # Générer les gouttières si activées
+        if props.add_gutters:
+            self._generate_gutters(context, props, collection, total_height, roof_overhang)
+
+        return roof
+    
+    def _create_flat_roof(self, width, length, height, overhang):
+        """Toit plat"""
+        thickness = ROOF_THICKNESS_FLAT
+        
+        location = Vector((width/2, length/2, height + thickness/2))
+        dimensions = Vector((width + overhang*2, length + overhang*2, thickness))
+        
+        roof, mesh = self._create_box_mesh("Roof_Flat", location, dimensions)
+        return roof
+    
+    def _create_gable_roof(self, width, length, height, pitch, overhang):
+        """Toit à 2 pans"""
+        pitch_rad = math.radians(pitch)
+
+        # ✅ FIX BUG #8: Validation de pente extrême pour GABLE
+        if pitch < 15.0:
+            print(f"[House] ⚠️ Pente très faible ({pitch}°) - toit presque plat, considérez un toit FLAT")
+        elif pitch > 50.0:
+            print(f"[House] ⚠️ Pente très raide ({pitch}°) - toit très incliné, vérifiez le réalisme")
+
+        roof_height = (width/2) * math.tan(pitch_rad)
+
+        # ✅ FIX BUG #2: Limiter la hauteur à 1.5× la hauteur des murs (réalisme)
+        max_roof_height = height * 1.5
+        if roof_height > max_roof_height:
+            print(f"[House] ⚠️ Toit à 2 pans trop haut ({roof_height:.2f}m), limité à {max_roof_height:.2f}m")
+            roof_height = max_roof_height
+
+        roof_thickness = ROOF_THICKNESS_PITCHED
+
+        # ✅ FIX BUG #6: Ajouter logging comme SHED/GAMBREL
+        print(f"[House] Toit à 2 pans: pente {pitch}°, hauteur {roof_height:.2f}m (largeur {width:.1f}m)")
+
+        bm = bmesh.new()
+        
+        try:
+            h = height
+            rh = roof_height
+            o = overhang
+            
+            v1 = bm.verts.new((-o, -o, h))
+            v2 = bm.verts.new((width + o, -o, h))
+            v3 = bm.verts.new((width + o, length + o, h))
+            v4 = bm.verts.new((-o, length + o, h))
+            
+            v5 = bm.verts.new((width/2, -o, h + rh))
+            v6 = bm.verts.new((width/2, length + o, h + rh))
+            
+            f1 = bm.faces.new([v1, v2, v5])
+            f2 = bm.faces.new([v2, v3, v6, v5])
+            f3 = bm.faces.new([v3, v4, v6])
+            f4 = bm.faces.new([v4, v1, v5, v6])
+            
+            faces_to_extrude = [f1, f2, f3, f4]
+            ret = bmesh.ops.extrude_face_region(bm, geom=faces_to_extrude)
+            
+            extruded_verts = [v for v in ret['geom'] if isinstance(v, bmesh.types.BMVert)]
+            offset_vector = Vector((0, 0, -roof_thickness))
+            bmesh.ops.translate(bm, verts=extruded_verts, vec=offset_vector)
+            
+            roof, mesh = self._create_mesh_from_bmesh("GableRoof", bm)
+            
+        finally:
+            bm.free()
+        
+        return roof
+    
+    def _create_hip_roof(self, width, length, height, pitch, overhang):
+        """Toit à 4 pans RECTANGULAIRE (vrai toit en croupe)"""
+        pitch_rad = math.radians(pitch)
+
+        # ✅ FIX BUG #8: Validation de pente extrême pour HIP
+        if pitch < 15.0:
+            print(f"[House] ⚠️ Pente très faible ({pitch}°) - toit presque plat, considérez un toit FLAT")
+        elif pitch > 50.0:
+            print(f"[House] ⚠️ Pente très raide ({pitch}°) - toit très incliné, vérifiez le réalisme")
+
+        # ✅ FIX CRITIQUE: Calcul basé sur la plus petite dimension (standard architectural)
+        # Le toit HIP s'élève depuis les bords jusqu'au faîtage central
+        min_dim = min(width, length)
+
+        # Hauteur basée sur la moitié de la plus petite dimension
+        roof_height = (min_dim / 2) * math.tan(pitch_rad)
+
+        # ✅ FIX BUG #3: Limiter la hauteur à 1.5× la hauteur des murs (réalisme)
+        max_roof_height = height * 1.5
+        if roof_height > max_roof_height:
+            print(f"[House] ⚠️ Toit à 4 pans trop haut ({roof_height:.2f}m), limité à {max_roof_height:.2f}m")
+            roof_height = max_roof_height
+
+        print(f"[House] Toit à 4 pans: pente {pitch}°, hauteur {roof_height:.2f}m (dimensions {width:.1f}m × {length:.1f}m)")
+
+        # ✅ SÉCURITÉ: Vérification dimensions valides
+        if width <= 0 or length <= 0 or roof_height <= 0:
+            print(f"[House] ❌ ERREUR: Dimensions invalides pour toit HIP (w={width}, l={length}, h={roof_height})")
+            # Fallback: créer un toit plat minimal
+            return self._create_flat_roof(width, length, height, overhang)
+
+        bm = bmesh.new()
+
+        try:
+            o = overhang
+            h = height
+            w = width
+            l = length
+            rh = roof_height
+            roof_thickness = ROOF_THICKNESS_PITCHED
+
+            # ✅ GÉOMÉTRIE MANUELLE RECTANGULAIRE (pas de cone!)
+            # Calculer le faîtage selon les proportions
+            if width > length:
+                # Maison plus large que longue: faîtage horizontal le long de X
+                ridge_length = width - length
+
+                # Base (8 vertices du périmètre avec overhang)
+                v1 = bm.verts.new((-o, -o, h))                    # Avant-gauche
+                v2 = bm.verts.new((w + o, -o, h))                 # Avant-droit
+                v3 = bm.verts.new((w + o, l + o, h))              # Arrière-droit
+                v4 = bm.verts.new((-o, l + o, h))                 # Arrière-gauche
+
+                # Faîtage (2 vertices au sommet)
+                ridge_start_x = (w - ridge_length) / 2
+                ridge_end_x = ridge_start_x + ridge_length
+                ridge_y = l / 2
+
+                v5 = bm.verts.new((ridge_start_x, ridge_y, h + rh))    # Sommet gauche
+                v6 = bm.verts.new((ridge_end_x, ridge_y, h + rh))      # Sommet droit
+
+                # Faces du toit (4 pans)
+                bm.faces.new([v1, v2, v6, v5])  # Pan avant (trapèze)
+                bm.faces.new([v3, v4, v5, v6])  # Pan arrière (trapèze)
+                bm.faces.new([v1, v5, v4])      # Pan gauche (triangle)
+                bm.faces.new([v2, v3, v6])      # Pan droit (triangle)
+
+            elif length > width:
+                # Maison plus longue que large: faîtage horizontal le long de Y
+                ridge_length = length - width
+
+                # Base (périmètre avec overhang)
+                v1 = bm.verts.new((-o, -o, h))
+                v2 = bm.verts.new((w + o, -o, h))
+                v3 = bm.verts.new((w + o, l + o, h))
+                v4 = bm.verts.new((-o, l + o, h))
+
+                # Faîtage le long de Y
+                ridge_x = w / 2
+                ridge_start_y = (l - ridge_length) / 2
+                ridge_end_y = ridge_start_y + ridge_length
+
+                v5 = bm.verts.new((ridge_x, ridge_start_y, h + rh))   # Sommet avant
+                v6 = bm.verts.new((ridge_x, ridge_end_y, h + rh))     # Sommet arrière
+
+                # Faces du toit (4 pans)
+                bm.faces.new([v1, v2, v5])      # Pan avant (triangle)
+                bm.faces.new([v3, v4, v6])      # Pan arrière (triangle)
+                bm.faces.new([v1, v5, v6, v4])  # Pan gauche (trapèze)
+                bm.faces.new([v2, v3, v6, v5])  # Pan droit (trapèze)
+            else:
+                # Maison carrée: pyramide à 4 pans triangulaires
+                v1 = bm.verts.new((-o, -o, h))
+                v2 = bm.verts.new((w + o, -o, h))
+                v3 = bm.verts.new((w + o, l + o, h))
+                v4 = bm.verts.new((-o, l + o, h))
+
+                # Sommet unique au centre
+                v5 = bm.verts.new((w / 2, l / 2, h + rh))
+
+                # 4 faces triangulaires
+                bm.faces.new([v1, v2, v5])
+                bm.faces.new([v2, v3, v5])
+                bm.faces.new([v3, v4, v5])
+                bm.faces.new([v4, v1, v5])
+
+            roof, mesh = self._create_mesh_from_bmesh("HipRoof", bm)
+
+        finally:
+            bm.free()
+
+        # ✅ Position centrée
+        roof.location = (0, 0, 0)
+
+        return roof
+
+    def _create_shed_roof(self, width, length, height, pitch, overhang):
+        """Toit monopente (monte de l'avant vers l'arrière, axe Y)"""
+        pitch_rad = math.radians(pitch)
+
+        # ✅ FIX: Calculer la hauteur basée sur la LONGUEUR (axe Y), pas la largeur
+        roof_height = length * math.tan(pitch_rad)
+
+        # ✅ AMÉLIORATION: Limiter la hauteur à 1.5× la hauteur des murs (réalisme)
+        max_roof_height = height * 1.5
+        if roof_height > max_roof_height:
+            print(f"[House] ⚠️ Toit monopente trop haut ({roof_height:.2f}m), limité à {max_roof_height:.2f}m")
+            roof_height = max_roof_height
+
+        roof_thickness = ROOF_THICKNESS_PITCHED
+
+        print(f"[House] Toit monopente: pente {pitch}°, hauteur {roof_height:.2f}m (longueur {length:.1f}m)")
+
+        bm = bmesh.new()
+
+        try:
+            h = height
+            o = overhang
+
+            # ✅ FIX: Sommets corrigés - pente monte sur l'axe Y (avant → arrière)
+            # Face supérieure (surface du toit inclinée)
+            v1_top = bm.verts.new((-o, -o, h))                          # Avant-gauche BAS
+            v2_top = bm.verts.new((width + o, -o, h))                   # Avant-droit BAS
+            v3_top = bm.verts.new((width + o, length + o, h + roof_height))  # Arrière-droit HAUT
+            v4_top = bm.verts.new((-o, length + o, h + roof_height))    # Arrière-gauche HAUT
+
+            # Face inférieure (plafond sous le toit)
+            v1_bot = bm.verts.new((-o, -o, h - roof_thickness))
+            v2_bot = bm.verts.new((width + o, -o, h - roof_thickness))
+            v3_bot = bm.verts.new((width + o, length + o, h + roof_height - roof_thickness))
+            v4_bot = bm.verts.new((-o, length + o, h + roof_height - roof_thickness))
+
+            # Face supérieure (pente du toit)
+            bm.faces.new([v1_top, v2_top, v3_top, v4_top])
+
+            # Face inférieure (plafond)
+            bm.faces.new([v4_bot, v3_bot, v2_bot, v1_bot])
+
+            # ✅ FIX BUG #9: Clarification des formes géométriques des faces
+            # Faces latérales (fermeture du volume - ordre cohérent)
+            bm.faces.new([v1_top, v1_bot, v2_bot, v2_top])  # Avant (rectangle bas, Y = -o)
+            bm.faces.new([v3_top, v3_bot, v4_bot, v4_top])  # Arrière (rectangle haut, Y = length+o)
+            bm.faces.new([v4_top, v4_bot, v1_bot, v1_top])  # Gauche (trapèze incliné, X = -o)
+            bm.faces.new([v2_top, v2_bot, v3_bot, v3_top])  # Droite (trapèze incliné, X = width+o)
+
+            roof, mesh = self._create_mesh_from_bmesh("ShedRoof", bm)
+
+        finally:
+            bm.free()
+
+        return roof
+
+    def _create_gambrel_roof(self, width, length, height, pitch, overhang):
+        """Toit mansarde/gambrel (4 pans brisés)"""
+        pitch_rad = math.radians(pitch)
+
+        # ✅ FIX BUG #7: Utiliser width au lieu de min(width, length) pour éviter asymétrie
+        # Calcul des hauteurs (pente inférieure plus raide)
+        lower_height = (width / 4) * math.tan(pitch_rad * 1.5)  # Pente raide
+        upper_height = lower_height * 0.4  # Partie supérieure plus plate
+
+        # Limite réaliste
+        max_total_height = height * 1.5
+        total_roof_height = lower_height + upper_height
+        if total_roof_height > max_total_height:
+            scale_factor = max_total_height / total_roof_height
+            lower_height *= scale_factor
+            upper_height *= scale_factor
+            print(f"[House] ⚠️ Toit mansarde trop haut, limité à {max_total_height:.2f}m")
+
+        print(f"[House] Toit mansarde: pente {pitch}°, hauteur {lower_height + upper_height:.2f}m (pente basse {lower_height:.2f}m + haute {upper_height:.2f}m)")
+
+        bm = bmesh.new()
+
+        try:
+            h = height
+            o = overhang
+            break_point = 0.7  # Point de brisure à 70% de la largeur/longueur
+
+            # ========== Base (niveau des murs) ==========
+            v1 = bm.verts.new((-o, -o, h))
+            v2 = bm.verts.new((width + o, -o, h))
+            v3 = bm.verts.new((width + o, length + o, h))
+            v4 = bm.verts.new((-o, length + o, h))
+
+            # ========== Points de brisure (pente inférieure) ==========
+            bw = width * (1 - break_point) / 2
+            bl = length * (1 - break_point) / 2
+
+            v5 = bm.verts.new((bw, bl, h + lower_height))
+            v6 = bm.verts.new((width - bw, bl, h + lower_height))
+            v7 = bm.verts.new((width - bw, length - bl, h + lower_height))
+            v8 = bm.verts.new((bw, length - bl, h + lower_height))
+
+            # ========== Sommet plat (pente supérieure) ==========
+            tw = width * 0.25  # Toit plat = 25% de la largeur
+            tl = length * 0.25
+
+            v9 = bm.verts.new((width/2 - tw/2, length/2 - tl/2, h + lower_height + upper_height))
+            v10 = bm.verts.new((width/2 + tw/2, length/2 - tl/2, h + lower_height + upper_height))
+            v11 = bm.verts.new((width/2 + tw/2, length/2 + tl/2, h + lower_height + upper_height))
+            v12 = bm.verts.new((width/2 - tw/2, length/2 + tl/2, h + lower_height + upper_height))
+
+            # ========== Faces - Pentes inférieures (raides) ==========
+            bm.faces.new([v1, v2, v6, v5])  # Avant
+            bm.faces.new([v2, v3, v7, v6])  # Droite
+            bm.faces.new([v3, v4, v8, v7])  # Arrière
+            bm.faces.new([v4, v1, v5, v8])  # Gauche
+
+            # ========== Faces - Pentes supérieures (douces) ==========
+            bm.faces.new([v5, v6, v10, v9])  # Avant
+            bm.faces.new([v6, v7, v11, v10])  # Droite
+            bm.faces.new([v7, v8, v12, v11])  # Arrière
+            bm.faces.new([v8, v5, v9, v12])  # Gauche
+
+            # ========== Toit plat supérieur ==========
+            bm.faces.new([v9, v10, v11, v12])
+
+            roof, mesh = self._create_mesh_from_bmesh("GambrelRoof", bm)
+
+        finally:
+            bm.free()
+
+        return roof
+
+    def _generate_wall_openings(self, context, props, collection, walls, style_config):
+        """Génère les trous dans les murs (Boolean) - pour murs SIMPLES uniquement
+        
+        ✅ CORRIGÉ: Utilise les positions pré-calculées si disponibles
+        """
+        width = props.house_width
+        length = props.house_length
+
+        window_height_ratio = style_config.get('window_height_ratio', props.window_height_ratio)
+        
+        combined_bm = bmesh.new()
+        
+        try:
+            # PORTE
+            door_height = DOOR_HEIGHT
+            door_width = props.front_door_width
+            door_depth = WALL_THICKNESS + DOOR_DEPTH_EXTRA
+            
+            door_bm = bmesh.new()
+            bmesh.ops.create_cube(door_bm, size=1.0)
+            
+            door_scale = Matrix.Diagonal((door_width, door_depth, door_height, 1.0))
+            bmesh.ops.transform(door_bm, matrix=door_scale, verts=door_bm.verts)
+            
+            door_location = Vector((width/2, WALL_THICKNESS/2, door_height/2))
+            bmesh.ops.translate(door_bm, verts=door_bm.verts, vec=door_location)
+            
+            for v in door_bm.verts:
+                combined_bm.verts.new(v.co)
+            combined_bm.verts.ensure_lookup_table()
+            
+            for f in door_bm.faces:
+                combined_bm.faces.new([combined_bm.verts[v.index] for v in f.verts])
+            
+            door_bm.free()
+            
+            # ✅ NOUVEAU: Vérifier si on a des positions pré-calculées
+            has_calculated = hasattr(self, 'calculated_window_positions') and any(
+                len(v) > 0 for v in self.calculated_window_positions.values()
+            )
+            
+            # FENÊTRES
+            for floor in range(props.num_floors):
+                floor_z = floor * props.floor_height
+                window_height = props.floor_height * window_height_ratio
+                window_z = floor_z + props.floor_height * WINDOW_HEIGHT_DEFAULT
+                window_depth = WALL_THICKNESS + WINDOW_DEPTH_EXTRA
+                window_width = WINDOW_WIDTH
+                
+                if has_calculated:
+                    # ✅ NOUVEAU SYSTÈME: Utiliser les positions pré-calculées
+                    
+                    # Mur AVANT (front)
+                    for win_data in self.calculated_window_positions.get('front', []):
+                        x_pos = win_data['position']
+                        w = win_data.get('width', window_width)
+                        
+                        if floor == 0 and abs(x_pos - width/2) < door_width * 1.5:
+                            continue
+                        
+                        self._add_window_to_combined_mesh(
+                            combined_bm, x_pos, WALL_THICKNESS/2, window_z,
+                            w, window_depth, window_height
+                        )
+                    
+                    # Mur ARRIÈRE (back)
+                    for win_data in self.calculated_window_positions.get('back', []):
+                        x_pos = win_data['position']
+                        w = win_data.get('width', window_width)
+                        
+                        self._add_window_to_combined_mesh(
+                            combined_bm, x_pos, length - WALL_THICKNESS/2, window_z,
+                            w, window_depth, window_height
+                        )
+                    
+                    # Mur GAUCHE (left)
+                    for win_data in self.calculated_window_positions.get('left', []):
+                        y_pos = win_data['position']
+                        w = win_data.get('width', window_width)
+                        
+                        self._add_window_to_combined_mesh(
+                            combined_bm, WALL_THICKNESS/2, y_pos, window_z,
+                            window_depth, w, window_height
+                        )
+                    
+                    # Mur DROIT (right)
+                    for win_data in self.calculated_window_positions.get('right', []):
+                        y_pos = win_data['position']
+                        w = win_data.get('width', window_width)
+                        
+                        self._add_window_to_combined_mesh(
+                            combined_bm, width - WALL_THICKNESS/2, y_pos, window_z,
+                            window_depth, w, window_height
+                        )
+                
+                else:
+                    # FALLBACK: Ancien système avec espacement régulier
+                    num_windows_front = self._calculate_safe_window_count(width, "largeur")
+                    num_windows_side = self._calculate_safe_window_count(length, "longueur")
+                    
+                    spacing_front = width / (num_windows_front + 1)
+                    for i in range(num_windows_front):
+                        x_pos = spacing_front * (i + 1)
+                        
+                        if floor == 0 and abs(x_pos - width/2) < door_width * 1.5:
+                            continue
+                        
+                        self._add_window_to_combined_mesh(
+                            combined_bm, x_pos, WALL_THICKNESS/2, window_z,
+                            window_width, window_depth, window_height
+                        )
+                    
+                    for i in range(num_windows_front):
+                        x_pos = spacing_front * (i + 1)
+                        self._add_window_to_combined_mesh(
+                            combined_bm, x_pos, length - WALL_THICKNESS/2, window_z,
+                            window_width, window_depth, window_height
+                        )
+                    
+                    spacing_side = length / (num_windows_side + 1)
+                    for i in range(num_windows_side):
+                        y_pos = spacing_side * (i + 1)
+                        self._add_window_to_combined_mesh(
+                            combined_bm, WALL_THICKNESS/2, y_pos, window_z,
+                            window_depth, window_width, window_height
+                        )
+                    
+                    for i in range(num_windows_side):
+                        y_pos = spacing_side * (i + 1)
+                        self._add_window_to_combined_mesh(
+                            combined_bm, width - WALL_THICKNESS/2, y_pos, window_z,
+                            window_depth, window_width, window_height
+                        )
+            
+            combined_cutter, combined_mesh = self._create_mesh_from_bmesh("Openings_Cutter", combined_bm)
+            collection.objects.link(combined_cutter)
+            combined_cutter["house_part"] = "opening"
+            if hasattr(combined_cutter, "display_type"):
+                combined_cutter.display_type = 'WIRE'
+            combined_cutter.hide_render = True
+            
+            for wall in walls:
+                mod = wall.modifiers.new(name="Boolean_Openings", type='BOOLEAN')
+                mod.operation = 'DIFFERENCE'
+                mod.object = combined_cutter
+                mod.solver = 'FAST'
+            
+        finally:
+            combined_bm.free()
+    
+    def _add_window_to_combined_mesh(self, combined_bm, x, y, z, width, depth, height):
+        """Ajoute une fenêtre au mesh combiné"""
+        window_bm = bmesh.new()
+        bmesh.ops.create_cube(window_bm, size=1.0)
+        
+        window_scale = Matrix.Diagonal((width, depth, height, 1.0))
+        bmesh.ops.transform(window_bm, matrix=window_scale, verts=window_bm.verts)
+        
+        window_location = Vector((x, y, z))
+        bmesh.ops.translate(window_bm, verts=window_bm.verts, vec=window_location)
+        
+        vert_offset = len(combined_bm.verts)
+        for v in window_bm.verts:
+            combined_bm.verts.new(v.co)
+        combined_bm.verts.ensure_lookup_table()
+        
+        for f in window_bm.faces:
+            combined_bm.faces.new([combined_bm.verts[vert_offset + v.index] for v in f.verts])
+        
+        window_bm.free()
+    
+    def _generate_windows_complete(self, context, props, collection, style_config):
+        """Génère les fenêtres 3D complètes
+
+        ✅ NOUVEAU SYSTÈME: Utilise les positions pré-calculées depuis le FloorPlan
+        si disponibles, sinon fallback sur l'ancien système (intervalles réguliers).
+        
+        ✅ FIX Z-ORDERING: Les fenêtres sont placées DEVANT les briques 3D (offset -0.005m)
+        """
+        width = props.house_width
+        length = props.house_length
+
+        window_height_ratio = style_config.get('window_height_ratio', props.window_height_ratio)
+        window_height = props.floor_height * window_height_ratio
+        window_width = WINDOW_WIDTH
+
+        window_gen = WindowGenerator(quality=props.window_quality)
+
+        # Offset pour placer fenêtres DEVANT les briques (évite Z-fighting)
+        WINDOW_DEPTH_OFFSET = -0.005
+
+        # ✅ NOUVEAU: Vérifier si on a des positions pré-calculées
+        has_calculated = any(len(v) > 0 for v in self.calculated_window_positions.values())
+
+        for floor in range(props.num_floors):
+            floor_z = floor * props.floor_height
+            window_z = floor_z + props.floor_height * WINDOW_HEIGHT_DEFAULT
+
+            if has_calculated:
+                # ✅ NOUVEAU SYSTÈME: Utiliser les positions calculées
+                self._generate_windows_from_calculated(
+                    window_gen, props, collection, 
+                    window_width, window_height, window_z,
+                    width, length, WINDOW_DEPTH_OFFSET, floor
+                )
+            else:
+                # FALLBACK: Ancien système (intervalles réguliers)
+                self._generate_windows_regular_spacing(
+                    window_gen, props, collection,
+                    window_width, window_height, window_z,
+                    width, length, WINDOW_DEPTH_OFFSET, floor
+                )
+    
+    def _generate_windows_from_calculated(self, window_gen, props, collection,
+                                          window_width, window_height, window_z,
+                                          width, length, offset, floor):
+        """✅ NOUVEAU: Génère les fenêtres depuis les positions pré-calculées."""
+        
+        # Mur AVANT (front) - y = offset
+        for win_data in self.calculated_window_positions.get('front', []):
+            x_pos = win_data['position']
+            w = win_data.get('width', window_width)
+            h = win_data.get('height', window_height)
+            
+            # Éviter porte d'entrée au RDC
+            if floor == 0 and abs(x_pos - width/2) < props.front_door_width * 1.5:
+                continue
+            
+            window_gen.generate_window(
+                window_type=props.window_type,
+                width=w, height=h,
+                location=Vector((x_pos, offset, window_z)),
+                orientation='front',
+                collection=collection,
+                opening_angle=getattr(props, 'window_opening_angle', 0.0)
+            )
+        
+        # Mur ARRIÈRE (back) - y = length - offset
+        for win_data in self.calculated_window_positions.get('back', []):
+            x_pos = win_data['position']
+            w = win_data.get('width', window_width)
+            h = win_data.get('height', window_height)
+            
+            window_gen.generate_window(
+                window_type=props.window_type,
+                width=w, height=h,
+                location=Vector((x_pos, length - offset, window_z)),
+                orientation='back',
+                collection=collection,
+                opening_angle=getattr(props, 'window_opening_angle', 0.0)
+            )
+        
+        # Mur GAUCHE (left) - x = offset
+        for win_data in self.calculated_window_positions.get('left', []):
+            y_pos = win_data['position']
+            w = win_data.get('width', window_width)
+            h = win_data.get('height', window_height)
+            
+            window_gen.generate_window(
+                window_type=props.window_type,
+                width=w, height=h,
+                location=Vector((offset, y_pos, window_z)),
+                orientation='left',
+                collection=collection,
+                opening_angle=getattr(props, 'window_opening_angle', 0.0)
+            )
+        
+        # Mur DROIT (right) - x = width - offset
+        for win_data in self.calculated_window_positions.get('right', []):
+            y_pos = win_data['position']
+            w = win_data.get('width', window_width)
+            h = win_data.get('height', window_height)
+            
+            window_gen.generate_window(
+                window_type=props.window_type,
+                width=w, height=h,
+                location=Vector((width - offset, y_pos, window_z)),
+                orientation='right',
+                collection=collection,
+                opening_angle=getattr(props, 'window_opening_angle', 0.0)
+            )
+        
+        total = sum(len(self.calculated_window_positions.get(w, [])) for w in ['front', 'back', 'left', 'right'])
+        print(f"[House] Fenêtres étage {floor}: {total} (système calculé)")
+    
+    def _generate_windows_regular_spacing(self, window_gen, props, collection,
+                                          window_width, window_height, window_z,
+                                          width, length, offset, floor):
+        """FALLBACK: Ancien système avec espacement régulier."""
+        
+        num_windows_front = self._calculate_safe_window_count(width, "largeur")
+        num_windows_side = self._calculate_safe_window_count(length, "longueur")
+        
+        # Mur AVANT
+        spacing_front = width / (num_windows_front + 1)
+        for i in range(num_windows_front):
+            x_pos = spacing_front * (i + 1)
+            
+            if floor == 0 and abs(x_pos - width/2) < props.front_door_width * 1.5:
+                continue
+            
+            window_gen.generate_window(
+                window_type=props.window_type,
+                width=window_width, height=window_height,
+                location=Vector((x_pos, offset, window_z)),
+                orientation='front',
+                collection=collection,
+                opening_angle=getattr(props, 'window_opening_angle', 0.0)
+            )
+        
+        # Mur ARRIÈRE
+        for i in range(num_windows_front):
+            x_pos = spacing_front * (i + 1)
+            window_gen.generate_window(
+                window_type=props.window_type,
+                width=window_width, height=window_height,
+                location=Vector((x_pos, length - offset, window_z)),
+                orientation='back',
+                collection=collection,
+                opening_angle=getattr(props, 'window_opening_angle', 0.0)
+            )
+        
+        # Mur GAUCHE
+        spacing_side = length / (num_windows_side + 1)
+        for i in range(num_windows_side):
+            y_pos = spacing_side * (i + 1)
+            window_gen.generate_window(
+                window_type=props.window_type,
+                width=window_width, height=window_height,
+                location=Vector((offset, y_pos, window_z)),
+                orientation='left',
+                collection=collection,
+                opening_angle=getattr(props, 'window_opening_angle', 0.0)
+            )
+        
+        # Mur DROIT
+        for i in range(num_windows_side):
+            y_pos = spacing_side * (i + 1)
+            window_gen.generate_window(
+                window_type=props.window_type,
+                width=window_width, height=window_height,
+                location=Vector((width - offset, y_pos, window_z)),
+                orientation='right',
+                collection=collection,
+                opening_angle=getattr(props, 'window_opening_angle', 0.0)
+            )
+        
+        print(f"[House] Fenêtres étage {floor}: {num_windows_front*2 + num_windows_side*2} (système régulier)")
+    
+    # [... Les autres fonctions garage, terrace, balcony, lighting restent identiques ...]
+    def _generate_gutters(self, context, props, collection, roof_height, roof_overhang):
+        """Génère le système de gouttières
+
+        Args:
+            context: Contexte Blender
+            props: Propriétés de la maison
+            collection: Collection où ajouter les gouttières
+            roof_height: Hauteur du toit (base)
+            roof_overhang: Débord du toit
+        """
+        print("[House] Génération des gouttières...")
+
+        width = props.house_width
+        length = props.house_length
+
+        # Déterminer le style de gouttière
+        gutter_style = props.gutter_style
+        if gutter_style == 'AUTO':
+            # Utiliser le mapping automatique selon style architectural
+            from .gutters.gutter_geometry import get_gutter_style_from_architectural_style
+            gutter_style, downspout_style = get_gutter_style_from_architectural_style(
+                props.architectural_style
+            )
+        else:
+            # Utiliser le style choisi manuellement
+            downspout_style = 'ROUND' if gutter_style == 'HALF_ROUND' else 'SQUARE'
+
+        # Déterminer le matériau
+        material_type = props.gutter_material_type if props.gutter_material_type != 'AUTO' else 'AUTO'
+
+        # Créer le générateur
+        generator = GuttersGenerator(quality=props.gutter_quality)
+
+        # Générer les gouttières
+        gutter_objects = generator.generate(
+            house_width=width,
+            house_length=length,
+            roof_height=roof_height,
+            architectural_style=props.architectural_style,
+            roof_type=props.roof_type,
+            roof_overhang=roof_overhang,
+            collection=collection,
+            material_type=material_type
+        )
+
+        # Marquer les objets comme parties de la maison
+        for obj in gutter_objects:
+            obj["house_part"] = "gutter"
+
+        print(f"[House] ✓ {len(gutter_objects)} objets gouttières créés")
+        print(f"  Style: {gutter_style}")
+        print(f"  Matériau: {material_type}")
+
+        return gutter_objects
+
+    def _generate_garage(self, context, props, collection):
+        """Génère un garage"""
+        width = props.house_width
+        length = props.house_length
+
+        # Taille du garage selon le type
+        if props.garage_size == 'SINGLE':
+            garage_width = GARAGE_WIDTH_SINGLE
+        else:
+            garage_width = GARAGE_WIDTH_DOUBLE
+
+        garage_length = GARAGE_LENGTH
+        garage_height = GARAGE_HEIGHT
+
+        # Position sur le côté gauche de la maison
+        if props.garage_position == 'LEFT':
+            garage_x = -garage_width / 2 - GARAGE_OFFSET
+            garage_y = length / 2
+        elif props.garage_position == 'RIGHT':
+            garage_x = width + garage_width / 2 + GARAGE_OFFSET
+            garage_y = length / 2
+        else:  # FRONT ou ATTACHED
+            garage_x = width / 2
+            garage_y = -garage_length / 2 - GARAGE_OFFSET
+
+        location = Vector((garage_x, garage_y, garage_height / 2))
+        dimensions = Vector((garage_width, garage_length, garage_height))
+
+        garage, mesh = self._create_box_mesh("Garage", location, dimensions)
+        collection.objects.link(garage)
+        garage["house_part"] = "garage"
+
+        return garage
+    
+    def _generate_terrace(self, context, props, collection):
+        """Génère une terrasse"""
+        width = props.house_width
+        length = props.house_length
+
+        terrace_width = width * TERRACE_WIDTH_RATIO
+        terrace_length = TERRACE_LENGTH
+        terrace_height = TERRACE_HEIGHT
+
+        # Position devant la maison
+        terrace_x = width / 2
+        terrace_y = -terrace_length / 2 - TERRACE_OFFSET
+
+        location = Vector((terrace_x, terrace_y, terrace_height / 2))
+        dimensions = Vector((terrace_width, terrace_length, terrace_height))
+
+        terrace, mesh = self._create_box_mesh("Terrace", location, dimensions)
+        collection.objects.link(terrace)
+        terrace["house_part"] = "terrace"
+
+        return terrace
+    
+    def _generate_balcony(self, context, props, collection):
+        """Génère un balcon"""
+        width = props.house_width
+        length = props.house_length
+
+        balcony_width = width * BALCONY_WIDTH_RATIO
+        balcony_depth = BALCONY_DEPTH
+        balcony_height = BALCONY_HEIGHT
+
+        # Position à l'avant de la maison, au premier étage
+        balcony_x = width / 2
+        balcony_y = -balcony_depth / 2
+        balcony_z = props.floor_height + balcony_height / 2
+
+        location = Vector((balcony_x, balcony_y, balcony_z))
+        dimensions = Vector((balcony_width, balcony_depth, balcony_height))
+
+        balcony, mesh = self._create_box_mesh("Balcony", location, dimensions)
+        collection.objects.link(balcony)
+        balcony["house_part"] = "balcony"
+
+        # Générer la rambarde
+        self._generate_balcony_railing(context, props, collection, balcony_width, balcony_depth, balcony_x, balcony_y, balcony_z + balcony_height / 2)
+
+        return balcony
+
+    def _generate_balcony_railing(self, context, props, collection, balcony_width, balcony_depth, x_pos, y_pos, z_pos):
+        """Génère la rambarde"""
+        bm = bmesh.new()
+
+        try:
+            railing_height = BALCONY_RAILING_HEIGHT
+            railing_thickness = BALCONY_RAILING_THICKNESS
+
+            # Rail horizontal supérieur (avant)
+            self._add_railing_segment(bm, x_pos, y_pos - balcony_depth / 2, z_pos + railing_height, balcony_width, railing_thickness, railing_thickness)
+
+            # Poteaux
+            num_posts = int(balcony_width / BALCONY_POST_SPACING) + 1
+            for i in range(num_posts):
+                post_x = x_pos - balcony_width / 2 + i * BALCONY_POST_SPACING
+                self._add_railing_post(bm, post_x, y_pos - balcony_depth / 2, z_pos, BALCONY_POST_SIZE, BALCONY_POST_SIZE, railing_height)
+
+            railing, mesh = self._create_mesh_from_bmesh("Balcony_Railing", bm)
+            collection.objects.link(railing)
+            railing["house_part"] = "balcony"
+
+        finally:
+            bm.free()
+
+        return railing
+
+    def _add_railing_segment(self, bm, x, y, z, width, depth, height):
+        """Ajoute un segment de rambarde"""
+        half_w = width / 2
+        half_d = depth / 2
+        half_h = height / 2
+
+        # Créer les 8 sommets d'un cube
+        v1 = bm.verts.new((x - half_w, y - half_d, z - half_h))
+        v2 = bm.verts.new((x + half_w, y - half_d, z - half_h))
+        v3 = bm.verts.new((x + half_w, y + half_d, z - half_h))
+        v4 = bm.verts.new((x - half_w, y + half_d, z - half_h))
+        v5 = bm.verts.new((x - half_w, y - half_d, z + half_h))
+        v6 = bm.verts.new((x + half_w, y - half_d, z + half_h))
+        v7 = bm.verts.new((x + half_w, y + half_d, z + half_h))
+        v8 = bm.verts.new((x - half_w, y + half_d, z + half_h))
+
+        # Créer les faces
+        bm.faces.new([v1, v2, v3, v4])  # Bas
+        bm.faces.new([v5, v8, v7, v6])  # Haut
+        bm.faces.new([v1, v5, v6, v2])  # Avant
+        bm.faces.new([v2, v6, v7, v3])  # Droite
+        bm.faces.new([v3, v7, v8, v4])  # Arrière
+        bm.faces.new([v4, v8, v5, v1])  # Gauche
+
+    def _add_railing_post(self, bm, x, y, z, width, depth, height):
+        """Ajoute un poteau"""
+        half_w = width / 2
+        half_d = depth / 2
+
+        # Créer les 8 sommets d'un poteau vertical
+        v1 = bm.verts.new((x - half_w, y - half_d, z))
+        v2 = bm.verts.new((x + half_w, y - half_d, z))
+        v3 = bm.verts.new((x + half_w, y + half_d, z))
+        v4 = bm.verts.new((x - half_w, y + half_d, z))
+        v5 = bm.verts.new((x - half_w, y - half_d, z + height))
+        v6 = bm.verts.new((x + half_w, y - half_d, z + height))
+        v7 = bm.verts.new((x + half_w, y + half_d, z + height))
+        v8 = bm.verts.new((x - half_w, y + half_d, z + height))
+
+        # Créer les faces
+        bm.faces.new([v1, v2, v3, v4])  # Bas
+        bm.faces.new([v5, v8, v7, v6])  # Haut
+        bm.faces.new([v1, v5, v6, v2])  # Avant
+        bm.faces.new([v2, v6, v7, v3])  # Droite
+        bm.faces.new([v3, v7, v8, v4])  # Arrière
+        bm.faces.new([v4, v8, v5, v1])  # Gauche
+
+    def _generate_front_door(self, context, props, collection):
+        """Génère la porte d'entrée 3D avec 4 styles disponibles"""
+        from .doors import DoorGenerator
+
+        width = props.house_width
+        door_width = props.front_door_width
+        door_height = getattr(props, 'door_height', DOOR_HEIGHT)
+
+        # Position de la porte (centre du mur avant)
+        door_x = width / 2 - door_width / 2
+        # ✅ FIX: Décaler la porte vers l'extérieur pour qu'elle soit visible
+        # La porte a son épaisseur centrée sur Y=0 en local, donc on la décale
+        # de la moitié de l'épaisseur du mur pour qu'elle soit sur la face extérieure
+        door_y = -0.02  # Légèrement vers l'extérieur (face avant visible)
+        door_z = 0  # Au niveau du sol
+
+        # Récupérer les options de style
+        door_style = getattr(props, 'door_style', 'SOLID_WOOD')
+        wood_color = getattr(props, 'door_wood_color', 'DARK_OAK')
+        alu_color = getattr(props, 'door_alu_color', 'GRIS_ANTHRACITE')
+        alu_finish = getattr(props, 'door_alu_finish', 'SATINE')
+        glass_type = getattr(props, 'door_glass_type', 'CLEAR')
+
+        print(f"[House] Génération porte style: {door_style}")
+
+        try:
+            generator = DoorGenerator(
+                door_style=door_style,
+                door_width=door_width,
+                door_height=door_height,
+                wood_color=wood_color,
+                alu_color=alu_color,
+                alu_finish=alu_finish,
+                glass_type=glass_type,
+                add_frame=True,
+                add_handle=True,
+                add_hinges=True,
+                hinge_side='LEFT'
+            )
+
+            door_objects = generator.generate(
+                collection=collection,
+                location=(door_x, door_y, door_z),
+                rotation=0
+            )
+
+            print(f"[House] ✅ Porte avant {door_style} créée avec {len(door_objects)} éléments")
+
+        except Exception as e:
+            print(f"[House] ⚠️ Erreur création porte avant: {e}")
+            import traceback
+            traceback.print_exc()
+
+        # ================================================================
+        # PORTE ARRIÈRE (si activée)
+        # ================================================================
+        if getattr(props, 'include_back_door', False):
+            print(f"[House] Génération porte arrière...")
+
+            # Récupérer l'épaisseur du mur
+            wall_thickness = getattr(props, 'wall_thickness', 0.20)
+
+            # Position de la porte arrière (centre du mur arrière)
+            # ✅ FIX: Positionner la porte sur la face extérieure du mur arrière
+            back_door_x = width / 2 - door_width / 2
+            back_door_y = length + 0.02  # Légèrement vers l'extérieur (face avant visible)
+            back_door_z = 0
+
+            print(f"[House] Position porte arrière: x={back_door_x:.2f}, y={back_door_y:.2f}, length={length}")
+
+            try:
+                back_door_generator = DoorGenerator(
+                    door_style=door_style,
+                    door_width=door_width,
+                    door_height=door_height,
+                    wood_color=wood_color,
+                    alu_color=alu_color,
+                    alu_finish=alu_finish,
+                    glass_type=glass_type,
+                    add_frame=True,
+                    add_handle=True,
+                    add_hinges=True,
+                    hinge_side='RIGHT'  # Inversé pour la porte arrière
+                )
+
+                back_door_objects = back_door_generator.generate(
+                    collection=collection,
+                    location=(back_door_x, back_door_y, back_door_z),
+                    rotation=math.pi  # Rotation de 180° pour faire face à l'extérieur
+                )
+
+                print(f"[House] ✅ Porte arrière créée avec {len(back_door_objects)} éléments")
+
+            except Exception as e:
+                print(f"[House] ⚠️ Erreur création porte arrière: {e}")
+                import traceback
+                traceback.print_exc()
+
+    def _add_scene_lighting(self, context, props):
+        """Ajoute l'éclairage"""
+        width = props.house_width
+        length = props.house_length
+        total_height = props.num_floors * props.floor_height
+
+        # Lumière principale (soleil)
+        if not bpy.data.lights.get("Sun"):
+            sun_data = bpy.data.lights.new(name="Sun", type='SUN')
+            sun_data.energy = 2.0
+            sun_object = bpy.data.objects.new(name="Sun", object_data=sun_data)
+            context.scene.collection.objects.link(sun_object)
+            sun_object.location = (width / 2, length / 2, total_height + 10)
+            sun_object.rotation_euler = (0.785, 0, 0.785)  # 45 degrés
+
+        # Lumière d'appoint (point light)
+        if not bpy.data.lights.get("House_Light"):
+            light_data = bpy.data.lights.new(name="House_Light", type='POINT')
+            light_data.energy = 500.0
+            light_data.shadow_soft_size = 2.0
+            light_object = bpy.data.objects.new(name="House_Light", object_data=light_data)
+            context.scene.collection.objects.link(light_object)
+            light_object.location = (width / 2, length / 2 - 5, total_height + 5)
+
+    def _apply_exterior_crepi(self, wall_obj, props, collection, openings=None):
+        """Applique un crépi/enduit extérieur sur les 4 murs
+
+        ✅ CORRECTION: Créer 4 plans de crépi (un par façade) correctement positionnés
+        """
+        from .exterior_walls import ExteriorCrepi
+        import math
+
+        print(f"[House] Application crépi/enduit sur les 4 façades")
+
+        # Récupérer les dimensions de la maison
+        width = props.house_width
+        length = props.house_length
+        height = props.num_floors * props.floor_height
+
+        # Vérifier dimensions valides
+        if width < 0.1 or length < 0.1 or height < 0.1:
+            print(f"[House] ⚠️ Skip crépi: dimensions invalides")
+            return
+
+        custom_color = None
+        color_preset = props.exterior_crepi_color_preset
+        if props.exterior_crepi_color_preset == 'CUSTOM':
+            custom_color = tuple(props.exterior_crepi_custom_color)
+
+        imperf = props.exterior_crepi_imperfections
+        dirt = imperf * 0.4
+        water_stains = imperf * 0.3
+        moss = imperf * 0.15
+        cracks = imperf * 0.15
+
+        try:
+            # Créer 4 façades
+            facades = [
+                {'name': 'front', 'width': width, 'height': height,
+                 'location': (0, -0.01, 0), 'rotation': (0, 0, 0)},
+                {'name': 'back', 'width': width, 'height': height,
+                 'location': (width, length + 0.01, 0), 'rotation': (0, 0, math.pi)},
+                {'name': 'left', 'width': length, 'height': height,
+                 'location': (-0.01, 0, 0), 'rotation': (0, 0, math.pi/2)},
+                {'name': 'right', 'width': length, 'height': height,
+                 'location': (width + 0.01, length, 0), 'rotation': (0, 0, -math.pi/2)},
+            ]
+
+            for facade in facades:
+                # Filtrer les ouvertures pour cette façade
+                facade_openings = [o for o in (openings or []) if o.get('wall') == facade['name']]
+
+                # DEBUG: Afficher les ouvertures pour cette façade
+                print(f"[House] Crépi {facade['name']}: {len(facade_openings)} ouvertures")
+                for op in facade_openings:
+                    print(f"  - {op.get('type')}: x={op.get('x'):.2f}, z={op.get('z'):.2f}, {op.get('width'):.2f}x{op.get('height'):.2f}m")
+
+                crepi = ExteriorCrepi(
+                    plaster_type=props.exterior_crepi_type,
+                    color_preset=color_preset,
+                    custom_color=custom_color,
+                    grain_size=props.exterior_crepi_grain_size * 0.5,
+                    grain_intensity=props.exterior_crepi_grain_intensity * 0.5,
+                    color_variation=0.08,
+                    dirt=dirt,
+                    water_stains=water_stains,
+                    moss=moss,
+                    cracks=cracks,
+                    aging=props.exterior_crepi_aging,
+                    random_seed=42,
+                    openings=facade_openings
+                )
+
+                crepi_obj = crepi.generate_for_wall(
+                    wall_obj=None,
+                    wall_width=facade['width'],
+                    wall_height=facade['height'],
+                    wall_thickness=0.02,
+                    orientation=facade['name']
+                )
+
+                if crepi_obj:
+                    crepi_obj.location = facade['location']
+                    crepi_obj.rotation_euler = facade['rotation']
+                    crepi_obj["house_part"] = "crepi"
+                    collection.objects.link(crepi_obj)
+
+            print(f"[House] ✅ Crépi {props.exterior_crepi_type} créé sur 4 façades")
+
+        except Exception as e:
+            print(f"[House] ⚠️ Erreur application crépi: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _apply_exterior_bardage(self, wall_obj, props, collection, openings=None):
+        """Applique un bardage bois extérieur sur les 4 murs
+
+        ✅ CORRECTION: Créer 4 panneaux de bardage correctement positionnés
+        """
+        from .exterior_walls import ExteriorBardage
+        import math
+
+        print(f"[House] Application bardage bois sur les 4 façades")
+
+        width = props.house_width
+        length = props.house_length
+        height = props.num_floors * props.floor_height
+
+        if width < 0.1 or length < 0.1 or height < 0.1:
+            print(f"[House] ⚠️ Skip bardage: dimensions invalides")
+            return
+
+        custom_color = None
+        if props.bardage_material_type == 'PEINT' and props.bardage_paint_preset == 'CUSTOM':
+            custom_color = tuple(props.bardage_paint_custom_color)
+
+        try:
+            facades = [
+                {'name': 'front', 'width': width, 'height': height,
+                 'location': (0, -0.01, 0), 'rotation': (0, 0, 0)},
+                {'name': 'back', 'width': width, 'height': height,
+                 'location': (width, length + 0.01, 0), 'rotation': (0, 0, math.pi)},
+                {'name': 'left', 'width': length, 'height': height,
+                 'location': (-0.01, 0, 0), 'rotation': (0, 0, math.pi/2)},
+                {'name': 'right', 'width': length, 'height': height,
+                 'location': (width + 0.01, length, 0), 'rotation': (0, 0, -math.pi/2)},
+            ]
+
+            for facade in facades:
+                # Filtrer les ouvertures pour cette façade
+                facade_openings = [o for o in (openings or []) if o.get('wall') == facade['name']]
+
+                bardage = ExteriorBardage(
+                    wall_width=facade['width'],
+                    wall_height=facade['height'],
+                    pose_type=props.bardage_pose_type,
+                    material_type=props.bardage_material_type,
+                    plank_width=props.bardage_plank_width,
+                    plank_thickness=0.020,
+                    gap=props.bardage_gap,
+                    bevel_width=0.001,
+                    wood_species=props.bardage_wood_species,
+                    weathering=props.bardage_weathering,
+                    paint_color_preset=props.bardage_paint_preset,
+                    paint_custom_color=custom_color,
+                    paint_wear=props.bardage_paint_wear,
+                    burn_intensity=props.bardage_burn_intensity,
+                    plank_variation=props.bardage_variation,
+                    height_variation=0.001,
+                    random_seed=42,
+                    openings=facade_openings
+                )
+
+                bardage_obj = bardage.generate_for_wall(None, collection)
+
+                if bardage_obj:
+                    bardage_obj.location = facade['location']
+                    bardage_obj.rotation_euler = facade['rotation']
+                    bardage_obj["house_part"] = "bardage"
+
+            print(f"[House] ✅ Bardage {props.bardage_material_type} créé sur 4 façades")
+
+        except Exception as e:
+            print(f"[House] ⚠️ Erreur application bardage: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _apply_exterior_pierre(self, wall_obj, props, collection, openings=None):
+        """Applique un parement pierre extérieur sur les 4 murs
+
+        ✅ CORRECTION: Créer 4 panneaux de pierre correctement positionnés
+        """
+        from .exterior_walls import ExteriorPierreParement
+        import math
+
+        print(f"[House] Application pierre de parement sur les 4 façades")
+
+        width = props.house_width
+        length = props.house_length
+        height = props.num_floors * props.floor_height
+
+        if width < 0.1 or length < 0.1 or height < 0.1:
+            print(f"[House] ⚠️ Skip pierre: dimensions invalides")
+            return
+
+        custom_color = None
+        if props.pierre_stone_type == 'CUSTOM':
+            custom_color = tuple(props.pierre_custom_color)
+
+        try:
+            facades = [
+                {'name': 'front', 'width': width, 'height': height,
+                 'location': (0, -0.01, 0), 'rotation': (0, 0, 0)},
+                {'name': 'back', 'width': width, 'height': height,
+                 'location': (width, length + 0.01, 0), 'rotation': (0, 0, math.pi)},
+                {'name': 'left', 'width': length, 'height': height,
+                 'location': (-0.01, 0, 0), 'rotation': (0, 0, math.pi/2)},
+                {'name': 'right', 'width': length, 'height': height,
+                 'location': (width + 0.01, length, 0), 'rotation': (0, 0, -math.pi/2)},
+            ]
+
+            for facade in facades:
+                # Filtrer les ouvertures pour cette façade
+                facade_openings = [o for o in (openings or []) if o.get('wall') == facade['name']]
+
+                pierre = ExteriorPierreParement(
+                    wall_width=facade['width'],
+                    wall_height=facade['height'],
+                    wall_thickness=0.25,
+                    layout_type=props.pierre_layout_type,
+                    stone_height=props.pierre_stone_height,
+                    stone_width_min=props.pierre_stone_width_min,
+                    stone_width_max=props.pierre_stone_width_max,
+                    stone_depth=props.pierre_stone_depth,
+                    joint_width=props.pierre_joint_width,
+                    joint_depth=props.pierre_joint_depth,
+                    stone_type=props.pierre_stone_type,
+                    custom_color=custom_color if custom_color else (0.72, 0.68, 0.60),
+                    color_variation=props.pierre_color_variation,
+                    brightness_variation=props.pierre_brightness_variation,
+                    texture_variation=props.pierre_texture_variation,
+                    vein_amount=props.pierre_vein_amount,
+                    weathering=props.pierre_weathering,
+                    moss=props.pierre_moss,
+                    dirt=props.pierre_dirt,
+                    random_seed=42,
+                    openings=facade_openings
+                )
+
+                pierre_obj = pierre.generate_for_wall(None, collection)
+
+                if pierre_obj:
+                    pierre_obj.location = facade['location']
+                    pierre_obj.rotation_euler = facade['rotation']
+                    pierre_obj["house_part"] = "pierre_parement"
+
+            print(f"[House] ✅ Pierre de parement créée sur 4 façades")
+
+        except Exception as e:
+            print(f"[House] ⚠️ Erreur application pierre: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _apply_materials(self, context, props, collection, style_config):
+        """Applique les matériaux - Les briques 3D sont déjà gérées"""
+
+        # Les briques 3D ont DÉJÀ leur matériau appliqué dans brick_geometry
+        # On ne touche PAS aux briques ici
+
+        user_changed_wall = not self._colors_are_default(props.wall_material_color, DEFAULT_WALL_COLOR)
+        user_changed_roof = not self._colors_are_default(props.roof_material_color, DEFAULT_ROOF_COLOR)
+        user_changed_floor = not self._colors_are_default(props.floor_material_color, DEFAULT_FLOOR_COLOR)
+
+        wall_color = props.wall_material_color if user_changed_wall else style_config.get('wall_color', props.wall_material_color)
+        roof_color = props.roof_material_color if user_changed_roof else style_config.get('roof_color', props.roof_material_color)
+        floor_color = props.floor_material_color if user_changed_floor else style_config.get('floor_color', props.floor_material_color)
+
+        wall_mat = self._get_or_create_material("House_Wall", wall_color)
+        roof_mat = self._get_or_create_material("House_Roof", roof_color)
+        floor_mat = self._get_or_create_material("House_Floor", floor_color)
+        glass_mat = self._get_or_create_glass_material("House_Glass")
+
+        # ✅ FINITIONS EXTÉRIEURES - Créer AVANT la boucle (remplacent les murs)
+        # Calculer les ouvertures pour les finitions extérieures
+        openings = self._calculate_openings_for_brick_walls(props)
+
+        # DEBUG: Afficher les ouvertures calculées
+        print(f"[House] DEBUG: {len(openings)} ouvertures totales")
+        for op in openings:
+            print(f"  - {op['wall']}: {op['type']} à x={op['x']:.2f}, z={op['z']:.2f}, {op['width']:.2f}x{op['height']:.2f}m")
+
+        # Les finitions sont créées indépendamment des murs existants
+        if hasattr(props, 'use_exterior_crepi') and props.use_exterior_crepi:
+            self._apply_exterior_crepi(None, props, collection, openings)
+
+        if hasattr(props, 'use_exterior_bardage') and props.use_exterior_bardage:
+            self._apply_exterior_bardage(None, props, collection, openings)
+
+        if hasattr(props, 'use_exterior_pierre') and props.use_exterior_pierre:
+            self._apply_exterior_pierre(None, props, collection, openings)
+
+        for obj in collection.objects:
+            if obj.type != 'MESH' or obj.hide_render:
+                continue
+
+            part_type = obj.get("house_part", None)
+
+            if part_type == "wall":
+                # Murs simples uniquement (pas les briques qui ont déjà leur matériau)
+                if props.wall_construction_type == 'SIMPLE' and len(obj.data.materials) == 0:
+                    obj.data.materials.append(wall_mat)
+            elif part_type == "roof":
+                obj.data.materials.clear()
+                obj.data.materials.append(roof_mat)
+            elif part_type == "floor":
+                # ✅ FIX BUG #6: Respecter matériaux du système avancé (comme pour les murs)
+                # Ne PAS écraser les matériaux si le système de sols avancé est activé
+                if hasattr(props, 'use_flooring_system') and props.use_flooring_system:
+                    # Système avancé activé: les sols ont déjà leurs matériaux détaillés
+                    # Ne rien faire, préserver les matériaux créés par flooring.py
+                    pass
+                else:
+                    # Système simple: appliquer couleur unie seulement si pas de matériau
+                    if len(obj.data.materials) == 0:
+                        obj.data.materials.append(floor_mat)
+            elif part_type == "glass":
+                obj.data.materials.clear()
+                obj.data.materials.append(glass_mat)
+    
+    def _get_or_create_material(self, name, color):
+        """Crée ou récupère un matériau"""
+        if bpy.data.materials.get(name):
+            mat = bpy.data.materials[name]
+        else:
+            mat = bpy.data.materials.new(name=name)
+            mat.use_nodes = True
+        
+        if not mat.use_nodes:
+            mat.use_nodes = True
+
+        nodes = mat.node_tree.nodes
+        # Chercher par type au lieu du nom pour compatibilité Blender 4.2
+        principled = next((n for n in nodes if n.type == 'BSDF_PRINCIPLED'), None)
+
+        if not principled:
+            principled = nodes.new(type='ShaderNodeBsdfPrincipled')
+            output = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+            if output:
+                mat.node_tree.links.new(principled.outputs["BSDF"], output.inputs["Surface"])
+
+        principled.inputs["Base Color"].default_value = (*color, 1.0)
+        principled.inputs["Roughness"].default_value = MATERIAL_ROUGHNESS
+        
+        return mat
+    
+    def _get_or_create_glass_material(self, name):
+        """Crée ou récupère le matériau verre"""
+        if bpy.data.materials.get(name):
+            return bpy.data.materials[name]
+        
+        mat = bpy.data.materials.new(name=name)
+        mat.use_nodes = True
+        
+        nodes = mat.node_tree.nodes
+        nodes.clear()
+        
+        output = nodes.new(type='ShaderNodeOutputMaterial')
+        output.location = (300, 0)
+        
+        glass_bsdf = nodes.new(type='ShaderNodeBsdfGlass')
+        glass_bsdf.location = (0, 0)
+        glass_bsdf.inputs["IOR"].default_value = 1.45
+        glass_bsdf.inputs["Roughness"].default_value = 0.0
+        glass_bsdf.inputs["Color"].default_value = (0.8, 0.9, 1.0, 1.0)
+        
+        mat.node_tree.links.new(glass_bsdf.outputs["BSDF"], output.inputs["Surface"])
+
+        mat.blend_method = 'HASHED'
+        mat.shadow_method = 'HASHED'
+        
+        return mat
+
+
+classes = (
+    HOUSE_OT_generate_auto,
+)
+
+
+def register():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+    print("[House] Module operators_auto ULTIMATE chargé")
+
+
+def unregister():
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
