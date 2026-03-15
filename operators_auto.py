@@ -2090,6 +2090,7 @@ class HOUSE_OT_generate_auto(Operator):
         from .doors import DoorGenerator
 
         width = props.house_width
+        length = props.house_length
         door_width = props.front_door_width
         door_height = getattr(props, 'door_height', DOOR_HEIGHT)
 
@@ -2362,6 +2363,7 @@ class HOUSE_OT_generate_auto(Operator):
                     bardage_obj.location = facade['location']
                     bardage_obj.rotation_euler = facade['rotation']
                     bardage_obj["house_part"] = "bardage"
+                    collection.objects.link(bardage_obj)
 
             print(f"[House] ✅ Bardage {props.bardage_material_type} créé sur 4 façades")
 
@@ -2438,6 +2440,7 @@ class HOUSE_OT_generate_auto(Operator):
                     pierre_obj.location = facade['location']
                     pierre_obj.rotation_euler = facade['rotation']
                     pierre_obj["house_part"] = "pierre_parement"
+                    collection.objects.link(pierre_obj)
 
             print(f"[House] ✅ Pierre de parement créée sur 4 façades")
 
