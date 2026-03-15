@@ -363,3 +363,75 @@ class FloorTypeBase:
 
         bm.verts.ensure_lookup_table()
         bm.faces.new([v1, v2, v3, v4])
+
+    def _clip_to_floor(self, obj, width, length, height):
+        """
+        Coupe le sol aux dimensions exactes de la pièce via Boolean INTERSECT.
+        Méthode partagée par ParquetMassif, ParquetContrecolle et Stratifie.
+        """
+        cutter_mesh = bpy.data.meshes.new("Floor_Cutter_Mesh")
+        cutter_bm = bmesh.new()
+
+        try:
+            top_z = self.THICKNESS * 2
+            verts = [
+                cutter_bm.verts.new((0, 0, -self.THICKNESS)),
+                cutter_bm.verts.new((width, 0, -self.THICKNESS)),
+                cutter_bm.verts.new((width, length, -self.THICKNESS)),
+                cutter_bm.verts.new((0, length, -self.THICKNESS)),
+                cutter_bm.verts.new((0, 0, top_z)),
+                cutter_bm.verts.new((width, 0, top_z)),
+                cutter_bm.verts.new((width, length, top_z)),
+                cutter_bm.verts.new((0, length, top_z)),
+            ]
+            cutter_bm.verts.ensure_lookup_table()
+
+            faces = [
+                (0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1),
+                (2, 6, 7, 3), (0, 3, 7, 4), (1, 5, 6, 2),
+            ]
+            for fi in faces:
+                cutter_bm.faces.new([verts[i] for i in fi])
+
+            cutter_bm.to_mesh(cutter_mesh)
+        finally:
+            cutter_bm.free()
+
+        cutter = bpy.data.objects.new("Floor_Cutter_Temp", cutter_mesh)
+        scene_collection = bpy.context.scene.collection
+
+        scene_collection.objects.link(obj)
+        scene_collection.objects.link(cutter)
+
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        cutter.select_set(False)
+
+        bool_mod = obj.modifiers.new("Boolean", 'BOOLEAN')
+        bool_mod.operation = 'INTERSECT'
+        bool_mod.object = cutter
+        bool_mod.solver = 'EXACT'
+
+        bpy.context.view_layer.update()
+
+        try:
+            bpy.ops.object.modifier_apply(modifier="Boolean")
+            print(f"[{self.FLOOR_NAME}] Boolean appliqué avec succès")
+        except Exception as e:
+            print(f"[{self.FLOOR_NAME}] Erreur Boolean bpy.ops: {e}")
+            try:
+                depsgraph = bpy.context.evaluated_depsgraph_get()
+                obj_eval = obj.evaluated_get(depsgraph)
+                new_mesh = bpy.data.meshes.new_from_object(obj_eval)
+                obj.data = new_mesh
+                obj.modifiers.remove(bool_mod)
+                print(f"[{self.FLOOR_NAME}] Boolean appliqué via depsgraph")
+            except Exception as e2:
+                print(f"[{self.FLOOR_NAME}] Erreur Boolean fallback: {e2}")
+                if "Boolean" in obj.modifiers:
+                    obj.modifiers.remove(obj.modifiers["Boolean"])
+
+        scene_collection.objects.unlink(cutter)
+        bpy.data.objects.remove(cutter)
+        bpy.data.meshes.remove(cutter_mesh)
+        scene_collection.objects.unlink(obj)
